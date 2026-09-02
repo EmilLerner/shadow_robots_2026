@@ -1,0 +1,5 @@
+All_subjects_data.h5
+human_joint_angle_predictor_3d.pkl
+human_joint_angle_predictor_info_3d.pkl
+__pycache__/
+*.pyc
