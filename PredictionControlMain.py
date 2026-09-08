@@ -3,7 +3,7 @@ import joblib
 import VariableConfig
 from inverse_kinematics_solver4 import choose_best_ik
 from PredictionV2_1 import (load_h5_trial, get_prediction)
-from armMotionWithMPC import ArmMotion
+from armMotionWithMPCV2 import ArmMotion
 import rtde_control, rtde_receive
 
 
