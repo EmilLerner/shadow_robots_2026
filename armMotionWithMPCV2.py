@@ -11,8 +11,6 @@ class ArmMotion():
         # ---- Robot Arm Settings ----
         self.q_real = np.deg2rad([0, -90, 0, -90, 0, 0])
 
-        self.orientation = orientation
-
         Kp = [3.0, 3.0, 3.0, 2.2, 1.8, 1.6]
         Ki = [0.01, 0.01, 0.01, 0.01, 0.01, 0.01]
         Kd = [1.0, 1.0, 1.25, 1.0, 1.0, 1.0]
@@ -90,59 +88,6 @@ class ArmMotion():
         rtde_c.speedJ(u.tolist(), self.max_joint_acceleration, loop_dt) 
         return u, e
 
-
-    def ema_pos(self, prev_pos, curr_pos, alpha=0.2):
-        return alpha * curr_pos + (1 - alpha) * prev_pos
-
-    def limit_angles(self, angles, u_limited):
-        limits = np.deg2rad([45, 30, 90, 90, 90, 180])
-        print(np.rad2deg(angles))
-        angles = np.array(angles)
-        u_limited = np.array(u_limited)
-        initial_angles = np.array(self.init_q)
-
-        for i in range(6):
-            upper = initial_angles[i] + limits[i]
-            lower = initial_angles[i] - limits[i]
-            if angles[i] > upper or angles[i] < lower:
-                u_limited[i] = 0.0  # stop motion if outside limit
-
-        return u_limited
-
-    def wrap_to_2pi(self, angle):
-        return (angle - 2 * np.pi) % (4 * np.pi) - 2 * np.pi
-
     def wrap_to_pi(self, angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def gen_rot_mat(self, angles, alpha, beta, gamma):
-        angle_X = angles[0]
-        angle_Y = angles[1]
-        angle_Z = angles[2]
-        angle_W = angles[3]
-
-        R_sensor = R.from_quat([-angle_Y, angle_X, angle_Z, angle_W]).as_matrix()
-        rot_matrix = R_sensor @ R.from_euler('zxy', [beta, gamma, alpha]).as_matrix()
-        return rot_matrix
-
-    def gain_scheduling(self, current_joint_velocity, max_joint_velocity):
-        # Base gains
-        Kp_base = [1.8, 1.8, 1.8, 1.8, 1.8, 1.8]
-        Ki_base = [0.01, 0.01, 0.01, 0.01, 0.01, 0.01]
-        Kd_base = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-
-        Kp_max = [3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
-        Ki_max = [0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
-        Kd_max = [1.0, 1.0, 1.5, 1.0, 1.0, 1.0]
-
-        Kp = []
-        Ki = []
-        Kd = []
-        for i in range(6):
-            v = abs(current_joint_velocity[i])
-            ratio = min(v / max_joint_velocity, 1.0)  # Clamp to 1.0
-            Kp.append(Kp_base[i] + (Kp_max[i] - Kp_base[i]) * ratio)
-            Ki.append(Ki_base[i] + (Ki_max[i] - Ki_base[i]) * ratio)
-            Kd.append(Kd_base[i] + (Kd_max[i] - Kd_base[i]) * ratio)
-        return Kp, Ki, Kd
 
