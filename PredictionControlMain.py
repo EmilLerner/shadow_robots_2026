@@ -3,7 +3,8 @@ import joblib
 import VariableConfig
 from inverse_kinematics_solver4 import choose_best_ik
 from PredictionV2_1 import (load_h5_trial, get_prediction)
-
+from armMotionWithMPC import ArmMotion
+import rtde_control, rtde_receive
 
 
 # Load training parameters
@@ -27,6 +28,10 @@ robot_d = VariableConfig.ROBOT_D
 robot_b = VariableConfig.ROBOT_B
 robot_tp = VariableConfig.ROBOT_TP
 
+ROBOT_IP_RIGHT = "127.0.0.1"
+    # ROBOT_IP_RIGHT = "192.168.0.183" # REAL IP, DON'T USE FOR TESTING AND DEBUGGING
+    # ROBOT_IP_RIGHT = "172.23.252.37"
+
 # Start 
 print("=" * 70)
 print("HUMAN MOTION PREDICTION + UR5 CONTROL")
@@ -44,12 +49,12 @@ print("Model type:", type(model))
 print("Model contents:", model)
 
 # Load HDF5 data
+print("\nLoading HDF5 data...")
 data = load_h5_trial(h5_filename, dataset_path)
 print(f"\nLoaded {len(data)} samples.")
 
 
 # Check required data columns
-
 required_columns = (imu_features + target_features)
 missing_columns = [column for column in required_columns if column not in data.columns]
 
@@ -66,9 +71,20 @@ print("All required columns found.")
 data = data.dropna(subset=required_columns).reset_index(drop=True)
 print(f"Valid samples: {len(data)}")
 
-
 # Initial robot configuration
 previous_robot_angles = np.deg2rad([0, -90, 0, -90, 0, 0])
+
+# Initialise tobot control
+print("\nConnecting to UR5...")
+right_arm = ArmMotion() # Configurable second parameter
+rtde_c_R = rtde_control.RTDEControlInterface(ROBOT_IP_RIGHT)
+rtde_r_R = rtde_receive.RTDEReceiveInterface(ROBOT_IP_RIGHT)
+print("Connected to UR5.")
+
+# Move robot to base position 
+print("\nMoving robot to base position...")
+right_arm.move_to_base(rtde_r_R, rtde_c_R)
+print("Robot at base position.")
 
 # Start prediction
 print("\n")
@@ -76,55 +92,56 @@ print("=" * 70)
 print("STARTING PREDICTION + ROBOT CONTROL")
 print("=" * 70)
 
-# Prediction loop
-for current_index in range(0, len(data) - sample_shift):
+# MAIN PREDICTION LOOP
+try: 
 
-    # get prediction
-    (
-        predicted_human_angles,
-        actual_human_angles,
-        predicted_human_position,
-        predicted_human_rotation,
-        actual_human_position,
-        actual_human_rotation,
-        position_error,
-        rotation_error_degrees
-    ) = get_prediction(
-        model,
-        data,
-        current_index,
-        sample_shift,
-        imu_features,
-        target_features,
-        upper_arm_length,
-        forearm_length,
-        hand_length
-    )
+    for current_index in range( 0, len(data) - sample_shift ):  
+
+        # RANDOM FOREST + HUMAN FORWARD KINEMATICs 
+        ( predicted_human_angles, 
+            actual_human_angles, 
+            predicted_human_position, 
+            predicted_human_rotation, 
+            actual_human_position, 
+            actual_human_rotation, 
+            position_error, 
+            rotation_error_degrees
+        ) = get_prediction( 
+            model, 
+            data, 
+            current_index, 
+            sample_shift, 
+            imu_features, 
+            target_features, 
+            upper_arm_length, 
+            forearm_length, 
+            hand_length )
+            
+
+        # INVERSE KINEMATICS 
+
+        try: 
+            robot_target = choose_best_ik( 
+                previous_robot_angles, 
+                predicted_human_position, 
+                predicted_human_rotation, 
+                robot_a, 
+                robot_d, 
+                robot_b, 
+                robot_tp 
+            ) 
+                
+        except Exception as error: 
+            print("\nIK ERROR:") 
+            print(error) 
+            continue
 
 
-    # Inverse kinematics
-
-    try:
-        robot_target = choose_best_ik(
-            previous_robot_angles,
-            predicted_human_position,
-            predicted_human_rotation,
-            robot_a,
-            robot_d,
-            robot_b,
-            robot_tp
-        )
-
-    except Exception as error:
-        print("\nIK ERROR:")
-        print(error)
-        continue
-
-    # Send target to MPC/PID controller
-    arm_motion.move_with_prediction(rtde_r, rtde_c, robot_target)
-
-    # Update previous robot configuration
-    previous_robot_angles = np.array(robot_target)
+        # Send target to MPC/PID controller
+        arm_motion.move_with_prediction(rtde_r, rtde_c, robot_target)
+        
+        # Update previous robot configuration
+        previous_robot_angles = np.array(robot_target)
 
 
     # Display results
@@ -176,108 +193,36 @@ print("=" * 70)
 print("SIMULATION COMPLETE")
 print("=" * 70)
 
+# ERROR HANDLING + ROBOT SHUTDOWN 
 
-from wirelessMasterCallback import WirelessMasterCallback
-from mtwManipulator import MtwManipulator
-from armMotionWithMPC import ArmMotion
-import sys
-import time
-import numpy as np
-import xsensdeviceapi as xda
-import rtde_control, rtde_receive
+except KeyboardInterrupt: 
+    print( "\n\nProgram stopped by user." ) 
 
-def stopWork(rtde_r, rtde_c):
-    rtde_c.stopScript()
-    rtde_c.speedStop()
-    rtde_c.servoStop()
-    rtde_c.disconnect()
-    rtde_r.disconnect()
+except Exception as error: print( "\n\nCONTROL ERROR:" ) 
+    print(error) 
 
-if __name__ == '__main__':
+finally: print( "\nStopping robot..." )
 
-    ### CONFIGURABLE FIELDS ###
+    try: 
+        rtde_c.speedStop() 
+    except Exception: 
+        pass 
 
-    ROBOT_IP_RIGHT = "127.0.0.1"
-    # ROBOT_IP_RIGHT = "192.168.0.183" # REAL IP, DON'T USE FOR TESTING AND DEBUGGING
-    # ROBOT_IP_RIGHT = "172.23.252.37"
+    try: 
+        rtde_c.stopScript() 
+    except Exception: 
+        pass 
 
-    desired_update_rate = 80
-    desired_radio_channel = 19
+    try: 
+        rtde_c.disconnect() 
+    except Exception: 
+        pass 
+    
+    try: 
+        rtde_r.disconnect() 
+    except Exception: 
+        pass 
+    
+    print( "Robot connection closed." )
 
-    mtws = {
-        "00B4F130": "SHOU R",
-        "00B4F1B4": "fARM R",
-        "00B4F198": "HAND R"
-    }
 
-    ### CONFIGURABLE FIELDS ###
-
-    right_arm = ArmMotion() # Configurable second parameter
-
-    rtde_c_R = rtde_control.RTDEControlInterface(ROBOT_IP_RIGHT)
-    rtde_r_R = rtde_receive.RTDEReceiveInterface(ROBOT_IP_RIGHT)
-
-    right_arm.move_to_base(rtde_r_R, rtde_c_R)
-
-    wireless_master_callback = WirelessMasterCallback()
-
-    print("Constructing XsControl...")
-    control = xda.XsControl.construct()
-    if control is None:
-        print("Failed to construct XsControl instance.")
-        sys.exit(1)
-
-    manipulator = MtwManipulator(control, wireless_master_callback, desired_update_rate, desired_radio_channel, mtws)
-    mtw_callbacks = []
-
-    try:
-        manipulator.scanXsDevices()
-        manipulator.startConfigMode()
-        manipulator.waitForConnections()
-        manipulator.startMeasurement()
-        manipulator.resetOrientationData()
-        manipulator.startRecording()
-
-        mtw_callbacks = manipulator.getMtwCallbacks()
-
-        quat_data = {idx: xda.XsQuaternion.identity() for idx in mtws.values()}
-
-        # This function checks for user input to break the loop
-        def user_input_ready():
-            return False  # Replace this with your method to detect user input
-
-        while not user_input_ready():
-            time.sleep(0)
-
-            new_data_available = False
-            for i in range(len(mtw_callbacks)):
-                if mtw_callbacks[i].dataAvailable():
-                    new_data_available = True
-                    packet = mtw_callbacks[i].getOldestPacket()
-                    mtw_deviceID = str(mtw_callbacks[i].device().deviceId())
-                    bodypart_name = mtws.get(mtw_deviceID)
-                    quat_data[bodypart_name] = packet.orientationQuaternion()
-                    mtw_callbacks[i].deleteOldestPacket()
-
-            if new_data_available:
-                side_quat_R = {k[:-2].strip(): v for k, v in quat_data.items() if k.endswith("R")}
-                right_arm.move_with_sensors(rtde_r_R, rtde_c_R, side_quat_R)
-
-    except Exception as ex:
-        print(ex)
-        print("****ABORT****")
-        stopWork(rtde_r_R, rtde_c_R)
-    except:
-        print("An unknown fatal error has occurred. Aborting.")
-        print("****ABORT****")
-        stopWork(rtde_r_R, rtde_c_R)
-
-    print("Closing XsControl...")
-    control.close()
-
-    print("Deleting mtw callbacks...")
-
-    print("Successful exit.")
-    print("Press [ENTER] to continue.")
-    input()
-    stopWork(rtde_r_R, rtde_c_R)
