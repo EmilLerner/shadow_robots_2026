@@ -2,7 +2,7 @@ import time
 import numpy as np
 
 from pidController import PIDcontroller
-from mpcControllerV5 import MPCController
+from mpcControllerV6 import MPCController
 
 
 class ArmMotion():
@@ -89,10 +89,6 @@ class ArmMotion():
         # Send velocity commands to UR5
         rtde_c.speedJ(u.tolist(), self.max_joint_acceleration, loop_dt) 
         return u, e
-
-        def wrap_to_pi(self, angle): 
-            return ((angle + np.pi) % (2 * np.pi)) - np.pi
-
 
 
     def ema_pos(self, prev_pos, curr_pos, alpha=0.2):
