@@ -1,4 +1,4 @@
-import coppeliasim_zmqremoteapi_client as zmqRemoteApi
+# import coppeliasim_zmqremoteapi_client as zmqRemoteApi
 import time
 import math
 from math import cos as cos
