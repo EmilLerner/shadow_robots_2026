@@ -66,7 +66,6 @@ if missing_columns:
     
 print("All required columns found.")
 
-
 # Remove invalid data 
 data = data.dropna(subset=required_columns).reset_index(drop=True)
 print(f"Valid samples: {len(data)}")
@@ -74,7 +73,7 @@ print(f"Valid samples: {len(data)}")
 # Initial robot configuration
 previous_robot_angles = np.deg2rad([0, -90, 0, -90, 0, 0])
 
-# Initialise tobot control
+# Initialise robot control
 print("\nConnecting to UR5...")
 right_arm = ArmMotion() # Configurable second parameter
 rtde_c_R = rtde_control.RTDEControlInterface(ROBOT_IP_RIGHT)
@@ -138,7 +137,7 @@ try:
 
 
         # Send target to MPC/PID controller
-        arm_motion.move_with_prediction(rtde_r, rtde_c, robot_target)
+        right_arm.move_with_prediction(rtde_r_R, rtde_c_R, robot_target)
         
         # Update previous robot configuration
         previous_robot_angles = np.array(robot_target)
@@ -188,41 +187,43 @@ try:
 
 
 # Completion
-print("\n")
-print("=" * 70)
-print("SIMULATION COMPLETE")
-print("=" * 70)
+    print("\n")
+    print("=" * 70)
+    print("SIMULATION COMPLETE")
+    print("=" * 70)
 
-# ERROR HANDLING + ROBOT SHUTDOWN 
+    # ERROR HANDLING + ROBOT SHUTDOWN 
 
 except KeyboardInterrupt: 
     print( "\n\nProgram stopped by user." ) 
 
-except Exception as error: print( "\n\nCONTROL ERROR:" ) 
+except Exception as error: 
+    print( "\n\nCONTROL ERROR:" ) 
     print(error) 
 
-finally: print( "\nStopping robot..." )
+finally: 
+    print( "\nStopping robot..." )
 
     try: 
-        rtde_c.speedStop() 
-    except Exception: 
-        pass 
-
-    try: 
-        rtde_c.stopScript() 
+        rtde_c_R.speedStop() 
     except Exception: 
         pass 
 
-    try: 
-        rtde_c.disconnect() 
-    except Exception: 
-        pass 
-    
-    try: 
-        rtde_r.disconnect() 
-    except Exception: 
-        pass 
-    
-    print( "Robot connection closed." )
+        try: 
+            rtde_c_R.stopScript() 
+        except Exception: 
+            pass 
+
+        try: 
+            rtde_c_R.disconnect() 
+        except Exception: 
+            pass 
+        
+        try: 
+            rtde_r_R.disconnect() 
+        except Exception: 
+            pass 
+        
+        print( "Robot connection closed." )
 
 

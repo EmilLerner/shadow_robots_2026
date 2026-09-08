@@ -6,11 +6,10 @@ import inverse_kinematics_solver4 as iks
 
 from math import pi
 
-import xsensdeviceapi as xda
 from scipy.spatial.transform import Rotation as R
 
 from pidController import PIDcontroller
-from mpcControllerV5 import MPCController
+from mpcControllerV6 import MPCController
 import csv
 
 
