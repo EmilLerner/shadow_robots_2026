@@ -1,4 +1,3 @@
-# import coppeliasim_zmqremoteapi_client as zmqRemoteApi
 import time
 import math
 from math import cos as cos
@@ -34,9 +33,9 @@ def solver(prev_angles, pos, rot, a_n, d_n, b, tp, t1_v, t2_v):
     y = pos[1]
     z = pos[2]
 
-    alpha = rot[0]
-    beta = rot[1]
-    gamma = rot[2]
+    # alpha = rot[0]
+    # beta = rot[1]
+    # gamma = rot[2]
     ### INPUT PARAMETERS ###
 
     ### CONSTANTS ###
@@ -68,7 +67,7 @@ def solver(prev_angles, pos, rot, a_n, d_n, b, tp, t1_v, t2_v):
     Tb_tp[0][3] = x
     Tb_tp[1][3] = y
     Tb_tp[2][3] = z
-    Tb_tp[:3, :3] = generate_rot_matrix(alpha, beta, gamma)
+    Tb_tp[:3, :3] = rot
 
     Tb_tp = np.round(Tb_tp, 4)
 
