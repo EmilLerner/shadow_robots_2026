@@ -35,14 +35,12 @@ class ArmMotion():
         self.q_des_prev = None
 
     def move_to_base(self, rtde_r, rtde_c):
-
         print("Moving robot to base position...")
-        rtde_c.moveJ(q_des, speed=0.1, acceleration=1.0)
+        rtde_c.moveJ(self.q_real.tolist(), speed=0.1, acceleration=1.0)
         print("moveJ has completed")
         self.q_des_prev = np.array(rtde_r.getActualQ(), dtype=float)
 
     def move_with_prediction(self, rtde_r, rtde_c, q_des):
-
         now = time.perf_counter()
         loop_dt = now - self.last
         self.last = now
@@ -69,11 +67,11 @@ class ArmMotion():
 
         # Optimise mpc-pid gains
         current_gains = { "Kp": self.pid.Kp, "Ki": self.pid.Ki, "Kd": self.pid.Kd } 
-        optimized_gains = self.mpc.optimize_gains( q, qd, q_des_limited, current_gains, loop_dt) 
+        optimized_gains = self.mpc.optimize_gains(q, qd, q_des_limited, current_gains, loop_dt) 
         self.pid.update_gains(optimized_gains["Kp"], optimized_gains["Ki"], optimized_gains["Kd"])\
 
         # calculate joint velocities
-        u, e = self.pid.step( q_des_limited, q, qd, loop_dt)
+        u, e = self.pid.step(q_des_limited, q, qd, loop_dt)
 
         # Safety: if comms or state look weird, bail
         if not np.all(np.isfinite(u)) or not np.all(np.isfinite(e)):

@@ -209,21 +209,21 @@ finally:
     except Exception: 
         pass 
 
-        try: 
-            rtde_c_R.stopScript() 
-        except Exception: 
-            pass 
+    try: 
+        rtde_c_R.stopScript() 
+    except Exception: 
+        pass 
 
-        try: 
-            rtde_c_R.disconnect() 
-        except Exception: 
-            pass 
-        
-        try: 
-            rtde_r_R.disconnect() 
-        except Exception: 
-            pass 
-        
-        print( "Robot connection closed." )
+    try: 
+        rtde_c_R.disconnect() 
+    except Exception: 
+        pass 
+    
+    try: 
+        rtde_r_R.disconnect() 
+    except Exception: 
+        pass 
+    
+    print( "Robot connection closed." )
 
 
