@@ -40,7 +40,7 @@ print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.0f} ms")
 
 # Load Random Forest model
 print("\nLoading Random Forest model...")
-model = joblib.load(model_filename)
+model = joblib.load(model_filename, mmap_mode="r")
 print("Model loaded successfully.")
 
 print("\nMODEL DEBUG")

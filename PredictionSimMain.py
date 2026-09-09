@@ -34,7 +34,7 @@ print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.0f} ms")
 
 # Load Random Forest model
 print("\nLoading Random Forest model...")
-model = joblib.load(model_filename)
+model = joblib.load(model_filename, mmap_mode="r")
 print("Model loaded successfully.")
 
 print("\nMODEL DEBUG")
@@ -85,6 +85,27 @@ ur5_joints = [
 
 print("UR5 joint handles loaded.")
 
+# Initial robot configuration
+base_position = np.deg2rad([0, -90, 0, -90, 0, 0])
+
+# move to base position
+print("\nMoving UR5 to base position...")
+
+# Set target position for each joint
+for joint_handle, target_angle in zip(ur5_joints, base_position):
+    sim.setJointTargetPosition(joint_handle, float(target_angle))
+
+# Initial robot configuration
+previous_robot_angles = base_position.copy()
+
+
+# Allow the robot to move toward the target
+
+for _ in range(200):
+    sim.step()
+
+print("UR5 reached base position.")
+
 
 # Test UR5 joints
 
@@ -99,9 +120,6 @@ for i, joint_handle in enumerate(ur5_joints, start=1):
 sim.setStepping(True)
 sim.startSimulation()
 print("CoppeliaSim simulation started.")
-
-# Initial robot configuration
-previous_robot_angles = np.deg2rad([0, -90, 0, -90, 0, 0])
 
 # Start prediction
 print("\n")
