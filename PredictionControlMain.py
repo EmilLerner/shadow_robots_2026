@@ -135,6 +135,9 @@ try:
             print(error) 
             continue
 
+        if not np.all(np.isfinite(robot_target)):
+            print("Unsafe target: non-finite joint values")
+            continue
 
         # Send target to MPC/PID controller
         right_arm.move_with_prediction(rtde_r_R, rtde_c_R, robot_target)
