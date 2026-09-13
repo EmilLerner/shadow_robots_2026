@@ -1,3 +1,5 @@
+import numpy as np
+
 # Settings
 H5_FILENAME = "All_subjects_data.h5"
 MODEL_FILENAME = "human_joint_angle_predictor_3d.pkl"
@@ -56,3 +58,10 @@ ROBOT_A = [0.0, 0.4251, 0.39215, 0.0, 0.0, 0.0]
 ROBOT_D = [0.0, 0.0, 0.0, 0.11000, 0.09475, 0.0]
 ROBOT_B = 0.0892
 ROBOT_TP = 0.07495
+
+# Safety clearance
+MIN_CLEARANCE = 0.045
+PROTECTIVE_STOP_DISTANCE = 0.028 # from ursim
+
+JOINT_MIN = np.deg2rad([-360.0, -360.0, -360.0, -360.0, -360.0, -360.0])
+JOINT_MAX = np.deg2rad([360.0, 360.0, 360.0, 360.0, 360.0, 360.0])

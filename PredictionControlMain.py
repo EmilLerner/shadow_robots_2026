@@ -28,6 +28,9 @@ robot_d = VariableConfig.ROBOT_D
 robot_b = VariableConfig.ROBOT_B
 robot_tp = VariableConfig.ROBOT_TP
 
+# Safety clearance
+min_clearance = VariableConfig.MIN_CLEARANCE
+
 ROBOT_IP_RIGHT = "127.0.0.1"
     # ROBOT_IP_RIGHT = "192.168.0.183" # REAL IP, DON'T USE FOR TESTING AND DEBUGGING
     # ROBOT_IP_RIGHT = "172.23.252.37"
@@ -127,7 +130,8 @@ try:
                 robot_a, 
                 robot_d, 
                 robot_b, 
-                robot_tp 
+                robot_tp,
+                min_clearance 
             ) 
                 
         except Exception as error: 

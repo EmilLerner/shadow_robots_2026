@@ -9,19 +9,21 @@ from math import sqrt as sqrt
 from math import atan as atan
 from math import pi as pi
 import numpy as np
+import VariableConfig
+
 
 # Robot geometry
-ROBOT_A = [0.0, 0.4251, 0.39215, 0.0, 0.0, 0.0]
-ROBOT_D = [0.0, 0.0, 0.0, 0.11000, 0.09475, 0.0]
-ROBOT_B = 0.0892
-ROBOT_TP = 0.07495
+a_n = VariableConfig.ROBOT_A
+d_n = VariableConfig.ROBOT_D
+b = VariableConfig.ROBOT_B
+tp = VariableConfig.ROBOT_TP
 
 # Safety clearance
-MIN_CLEARANCE = 0.045
-PROTECTIVE_STOP_DISTANCE = 0.028 # from ursim
+min_clearance = VariableConfig.MIN_CLEARANCE
+protective_stop_distance = VariableConfig.PROTECTIVE_STOP_DISTANCE # from ursim
 
-JOINT_MIN = np.deg2rad([-360.0, -360.0, -360.0, -360.0, -360.0, -360.0])
-JOINT_MAX = np.deg2rad([360.0, 360.0, 360.0, 360.0, 360.0, 360.0])
+joint_min = VariableConfig.JOINT_MIN
+joint_max = VariableConfig.JOINT_MAX
 
 wrap_mask = [True, True, True, True, True, True]  # e.g., only wrap joints 1-5
 
@@ -204,7 +206,7 @@ def normalize_joint_angles(current_angles, new_angles, wrap_mask):
             normalized[i] = new  # preserve absolute angle
     return normalized
 
-def within_joint_limits(angles, joint_min=JOINT_MIN, joint_max=JOINT_MAX):
+def within_joint_limits(angles, joint_min, joint_max):
     angles = np.asarray(angles, dtype=float)
     if angles.shape != (6,):
         return False
@@ -212,7 +214,7 @@ def within_joint_limits(angles, joint_min=JOINT_MIN, joint_max=JOINT_MAX):
         return False
     return bool(np.all(angles >= joint_min) and np.all(angles <= joint_max))
 
-def forward_kinematics_links(angles, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROBOT_TP):
+def forward_kinematics_links(angles, a_n, d_n, b, tp):
         angles = np.asarray(angles, dtype=float)
         if angles.shape != (6,):
             raise ValueError("angles must contain exactly six joint angles.")
@@ -329,7 +331,7 @@ def forward_kinematics_links(angles, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROB
         # z = fpk[2][3]
         # hand_pos = [x, y, z]
         # return hand_pos
-def forward_kinematics(angles, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROBOT_TP):
+def forward_kinematics(angles, a_n, d_n, b, tp):
     frames = forward_kinematics_links(angles, a_n, d_n, b, tp)
     tcp = frames["T_tcp"]
     return [tcp[0, 3], tcp[1, 3], tcp[2, 3]]
@@ -355,7 +357,7 @@ def point_to_segment_distance(point, segment_start, segment_end):
 
     return float(distance)
 
-def calculate_flange_lower_arm_clearance(angles, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROBOT_TP):
+def calculate_flange_lower_arm_clearance(angles, a_n, d_n, b, tp):
     frames = forward_kinematics_links(angles, a_n, d_n, b, tp)
 
     T2 = frames["T2"]
@@ -371,7 +373,7 @@ def calculate_flange_lower_arm_clearance(angles, a_n=ROBOT_A, d_n=ROBOT_D, b=ROB
 
     return clearance
 
-def is_clearance_safe(angles, min_clearance=MIN_CLEARANCE, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROBOT_TP):
+def is_clearance_safe(angles, min_clearance, a_n, d_n, b, tp):
     try:
         clearance = calculate_flange_lower_arm_clearance(angles, a_n, d_n, b, tp)
     except Exception:
@@ -381,10 +383,12 @@ def is_clearance_safe(angles, min_clearance=MIN_CLEARANCE, a_n=ROBOT_A, d_n=ROBO
 
     return bool(safe), float(clearance)
 
-def choose_best_ik(prev_angles, pos, rot, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, tp=ROBOT_TP):
+def choose_best_ik(prev_angles, pos, rot, a_n, d_n, b, tp, min_clearance):
     prev_angles = np.asarray(prev_angles, dtype=float)
+    
     if prev_angles.shape != (6,):
         raise ValueError("prev_angles must contain six joint angles.")
+    
     if not np.all(np.isfinite(prev_angles)):
         raise ValueError("prev_angles contains non-finite values.")
     
@@ -398,67 +402,129 @@ def choose_best_ik(prev_angles, pos, rot, a_n=ROBOT_A, d_n=ROBOT_D, b=ROBOT_B, t
     print(f"Required flange/lower-arm clearance: " f"{min_clearance * 1000:.1f} mm")
 
     for i in range(4):
+
         solved_ik = solver(prev_angles, pos, rot, a_n, d_n, b, tp, combs2[i], combs1[i])
+
         if solved_ik is None:
             print(f"Candidate {i + 1}: " f"IK FAILED")
             continue
+
         normalized_solution = normalize_joint_angles(prev_angles, solved_ik, wrap_mask)
+
         if not np.all(np.isfinite(normalized_solution)):
             print(f"Candidate {i + 1}: " f"REJECTED - non-finite angles")
             continue
-        if not within_joint_limits(normalized_solution):
+
+        if not within_joint_limits(normalized_solution, joint_min, joint_max):
             print(f"Candidate {i + 1}: " f"REJECTED - joint limit")
             continue
+
         safe, clearance = is_clearance_safe(normalized_solution, min_clearance, a_n, d_n, b, tp)
         total_rotation = np.sum(np.abs(normalized_solution - prev_angles))
+        
         if not safe:
             print(f"Candidate {i + 1}: " f"REJECTED - clearance " f"{clearance * 1000.:1f} mm")
-            ik_solutions.append({"angles": normalized_solution,
-                                 "clearance": clearance,
-                                 "total_rotation": total_rotation,
-                                 "safe": False})
+            ik_solutions.append({
+                "angles": normalized_solution,
+                "clearance": clearance,
+                "total_rotation": total_rotation,
+                "safe": False
+            })
             continue
 
-        print(f"Candidate {i + 1}: " 
-              f"SAFE - clearance " 
-              f"{clearance * 1000:.1f} mm, " 
-              f"joint movement "
-              f"{np.rad2deg(total_rotation):.2f} deg")
-        ik_solutions.append({"angles": normalized_solution,
-                             "clearance": clearance,
-                             "total_rotation": total_rotation,
-                             "safe": True}})
+        print(
+            f"Candidate {i + 1}: " 
+            f"SAFE - clearance " 
+            f"{clearance * 1000:.1f} mm, " 
+            f"joint movement "
+            f"{np.rad2deg(total_rotation):.2f} deg"
+        )
+        
+        ik_solutions.append({
+            "angles": normalized_solution,
+            "clearance": clearance,
+            "total_rotation": total_rotation,
+            "safe": True
+        })
 
-        safe_candidates = [candidate for candidate in ik_solutions if candidate["safe"]]
-        if not safe_candidates:
-            print("\nIK RESULT: "
-                  "NO SAFE IK SOLUTION")
-            try:
-                previous_clearance = (calculate_flange_lower_arm_clearance(prev_angles, a_n, d_n, b, tp))
-                print("Fallback configuration clearance: "
-                      f"{previous_clearance * 1000:.1f} mm")
-            except Exception:
-                print("Fallback configuration clearance: "
-                      "unable to calculate")
+    safe_candidates = [candidate for candidate in ik_solutions if candidate["safe"]]
+
+    if not safe_candidates:
+        print("\nIK RESULT: "
+                "NO SAFE IK SOLUTION")
+        try:
+            previous_clearance = (calculate_flange_lower_arm_clearance(prev_angles, a_n, d_n, b, tp))
+            print("Fallback configuration clearance: "
+                    f"{previous_clearance * 1000:.1f} mm")
+        except Exception:
+            print("Fallback configuration clearance: "
+                    "unable to calculate")
+                
         print("Returning previous robot configuration.")
         return prev_angles.copy()
         # print(np.rad2deg(solved_ik))
         # ik_solutions.append(solved_ik)
 
-    best_solution = None
-    min_rotation = float('inf')
+    # Select minimum joint movement among safe candidates 
+    best_candidate = min(safe_candidates, key=lambda candidate: candidate["total_rotation"])
+    best_solution = best_candidate["angles"]
+    best_clearance = best_candidate["clearance"]
+    best_rotation = best_candidate["total_rotation"]
 
-    for solution in ik_solutions:
-        # Normalize solution angles to be close to prev_angles
-        normalized_solution = normalize_joint_angles(prev_angles, solution, wrap_mask)
-        # Compute total rotation using normalized angles
-        total_rotation = np.sum(np.abs(np.array(normalized_solution) - np.array(prev_angles)))
-        if total_rotation < min_rotation:
-            min_rotation = total_rotation
-            best_solution = normalized_solution
-    
-    # If no valid solution is found, return previous angles
-    if best_solution is None:
-        return prev_angles
-    
+
+    # Final diagnostic
+
+    print("\nIK RESULT: SAFE SOLUTION SELECTED")
+    print("minumum flange/lower-arm clearance: " f"{best_clearance * 1000:.1f} mm")
+
+    print(
+        "Safety margin above configured " 
+        f"45 mm threshold: "
+        f"{(best_clearance - min_clearance) * 1000:.1f}"
+    )
+
+    print(
+        "Total joint movement from previous "
+        f"configuration: "
+        f"{np.rad2deg(best_rotation):.2f} deg" 
+    )
+
+    print("Selected joint configuration (degrees):")
+    print(np.around(np.rad2deg(best_solution), 2))
     return best_solution
+
+# Clearance diagnostic
+def print_configuration_clearance(angles, min_clearance):
+    """
+    Print clearance information for an arbritrary robot configuration.
+    """
+    angles = np.asarray(angles, dtype=float)
+    clearance = calculate_flange_lower_arm_clearance(angles)
+    print("\nCONFIGURATION CLEARANCE")
+    print(f"Flange/lower-arm clearance: " f"{clearance * 1000:.2f} mm")
+
+    if clearance >= min_clearance:
+        print("Status: SAFE")
+    else:
+        print(
+            "WARNING: This configuration is below "
+            "the configured URSIm protective-stop distance"
+        )
+
+# Test
+if __name__ == "__main__":
+    print("=" * 70)
+    print("UR5 IK / CLEARANCE TEST")
+    print("=" * 70)
+    print("\nRobot parameters:")
+    print("ROBOT_A =", a_n)
+    print("ROBOT_D =", d_n)
+    print("ROBOT_B =", b)
+    print("ROBOT_TP =", tp)
+    print("\nMinimum clearance:", f"{min_clearance * 1000:.1f}")
+
+    # Initial robot configuration
+    test_angles =np.deg2rad([0, -90, 0, -90, 0, 0])
+    print_configuration_clearance(test_angles)
+
+
