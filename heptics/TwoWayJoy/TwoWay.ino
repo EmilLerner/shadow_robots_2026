@@ -54,14 +54,22 @@ void loop() {
   int position =  constrain(joyX, 0, 100);
   float current = motor.getCurrent() - baseCurrent;
 
-  if (position < 10) position = constrain(controler1.getPressure() * 200 - 20, 0, 100);
+  if(speed > 0) {
+    setpoint = current / 30;
+  } else {
+    setpoint = baseSetpoint;
+  }
+  //int current = current_raw - 512;
 
-
-
-  setpoint = constrain(current / 30, baseSetpoint, 1.5);
+  // use the current to find the set point 
+  //setpoint = (float)((joyX_raw - 1800)) / 8192.0f;
+  setpoint = constrain(setpoint, baseSetpoint, 1.5);
+  //setpoint = 1;
+  
+  //motor.turn(speed);
   motor.moveToPosition(position, 100);
-  Serial.print(" Current: ");
-  Serial.println(current);
+  //Serial.print(" Current: ");
+  //Serial.println(current);
 
   // get PID controler running
   controler1.ctrl_update(setpoint);
