@@ -314,7 +314,7 @@ def forward_kinematics_links(angles, a_n, d_n, b, tp):
         T4 = np.dot(T3, Th45)
         T5 = np.dot(T4, Th56)
         T6 = np.dot(T5, T_tp6)
-        T_tcp = np.dot(T6, T_tp6)
+        T_tcp = T6
 
         return {
             "T0": T0,
@@ -362,12 +362,12 @@ def calculate_flange_lower_arm_clearance(angles, a_n, d_n, b, tp):
 
     T2 = frames["T2"]
     T3 = frames["T3"]
-    T5 = frames["T5"]
+    T6 = frames["T6"]
 
     lower_arm_start = T2[:3, 3]
     lower_arm_end = T3[:3, 3]
 
-    flange_position = T5[:3, 3]
+    flange_position = T6[:3, 3]
 
     clearance = point_to_segment_distance(flange_position, lower_arm_start, lower_arm_end)
 
@@ -383,6 +383,25 @@ def is_clearance_safe(angles, min_clearance, a_n, d_n, b, tp):
 
     return bool(safe), float(clearance)
 
+
+def check_trajectory_clearance(current_angles, target_angles, min_clearance, a_n, d_n, b, tp, steps = 100):
+    current_angles = np.asarray(current_angles, dtype=float)
+    target_angles = np.asarray(target_angles, dtype=float)
+    minimum_clearance = float("inf")
+
+    for i in range(1, steps + 1):
+
+        ratio = i / steps
+        test_angles = (current_angles + ratio*(target_angles - current_angles))
+        safe, clearance = is_clearance_safe(test_angles, min_clearance, a_n, d_n, b, tp)
+        minimum_clearance = min(minimum_clearance, clearance)
+
+        if not safe:
+            return False, minimum_clearance 
+        
+    return True, minimum_clearance
+
+
 def choose_best_ik(prev_angles, pos, rot, a_n, d_n, b, tp, min_clearance):
     prev_angles = np.asarray(prev_angles, dtype=float)
     
@@ -397,6 +416,9 @@ def choose_best_ik(prev_angles, pos, rot, a_n, d_n, b, tp, min_clearance):
     combs2 = [0, 0, 1, 1]
 
     ik_solutions = []
+
+    # max_j5_rotation = np.deg2rad(30)
+    # max_j6_rotation = np.deg2rad(30)
 
     print("\nIK SAFETY CHECK")
     print(f"Required flange/lower-arm clearance: " f"{min_clearance * 1000:.1f} mm")
@@ -419,33 +441,46 @@ def choose_best_ik(prev_angles, pos, rot, a_n, d_n, b, tp, min_clearance):
             print(f"Candidate {i + 1}: " f"REJECTED - joint limit")
             continue
 
+
+        # Check final configuration
         safe, clearance = is_clearance_safe(normalized_solution, min_clearance, a_n, d_n, b, tp)
+
+        # Check trajectory
+        trajectory_safe, trajectory_clearance = check_trajectory_clearance(
+            prev_angles,
+            normalized_solution,
+            min_clearance,
+            a_n,
+            d_n,
+            b,
+            tp,
+            steps = 100
+        )
+
         total_rotation = np.sum(np.abs(normalized_solution - prev_angles))
         
         if not safe:
             print(f"Candidate {i + 1}: " f"REJECTED - clearance " f"{clearance * 1000.:1f} mm")
+
+        elif not trajectory_safe:
+            print(f"Candidate {i + 1}: " f"REJECTED - clearance " f"{trajectory_clearance * 1000.:1f} mm")
+
+        else: 
+            print(
+                f"Candidate {i + 1}: SAFE - " 
+                f"final clearance {clearance * 1000:.1f} mm, " 
+                f"minimum trajectory clearance {trajectory_clearance * 1000:.1f} mm,"
+                f"joint movement "
+                f"{np.rad2deg(total_rotation):.2f} deg"
+            )
+
             ik_solutions.append({
                 "angles": normalized_solution,
-                "clearance": clearance,
+                "clearance": trajectory_clearance,
                 "total_rotation": total_rotation,
-                "safe": False
+                "safe": True
             })
             continue
-
-        print(
-            f"Candidate {i + 1}: " 
-            f"SAFE - clearance " 
-            f"{clearance * 1000:.1f} mm, " 
-            f"joint movement "
-            f"{np.rad2deg(total_rotation):.2f} deg"
-        )
-        
-        ik_solutions.append({
-            "angles": normalized_solution,
-            "clearance": clearance,
-            "total_rotation": total_rotation,
-            "safe": True
-        })
 
     safe_candidates = [candidate for candidate in ik_solutions if candidate["safe"]]
 
@@ -479,7 +514,7 @@ def choose_best_ik(prev_angles, pos, rot, a_n, d_n, b, tp, min_clearance):
 
     print(
         "Safety margin above configured " 
-        f"45 mm threshold: "
+        f"{min_clearance * 1000:.1f} mm threshold:"
         f"{(best_clearance - min_clearance) * 1000:.1f}"
     )
 
@@ -499,7 +534,7 @@ def print_configuration_clearance(angles, min_clearance):
     Print clearance information for an arbritrary robot configuration.
     """
     angles = np.asarray(angles, dtype=float)
-    clearance = calculate_flange_lower_arm_clearance(angles)
+    clearance = calculate_flange_lower_arm_clearance(angles, a_n, d_n, b, tp)
     print("\nCONFIGURATION CLEARANCE")
     print(f"Flange/lower-arm clearance: " f"{clearance * 1000:.2f} mm")
 

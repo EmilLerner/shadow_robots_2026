@@ -1,7 +1,7 @@
 import numpy as np
 import joblib
 import VariableConfig
-from inverse_kinematics_solver4 import choose_best_ik
+from inverse_kinematics_solver5 import choose_best_ik
 from PredictionV2_1 import (load_h5_trial, get_prediction)
 from armMotionWithMPCV2 import ArmMotion
 import rtde_control, rtde_receive
@@ -56,7 +56,6 @@ print("\nLoading HDF5 data...")
 data = load_h5_trial(h5_filename, dataset_path)
 print(f"\nLoaded {len(data)} samples.")
 
-
 # Check required data columns
 required_columns = (imu_features + target_features)
 missing_columns = [column for column in required_columns if column not in data.columns]
@@ -73,9 +72,6 @@ print("All required columns found.")
 data = data.dropna(subset=required_columns).reset_index(drop=True)
 print(f"Valid samples: {len(data)}")
 
-# Initial robot configuration
-previous_robot_angles = np.deg2rad([0, -90, 0, -90, 0, 0])
-
 # Initialise robot control
 print("\nConnecting to UR5...")
 right_arm = ArmMotion() # Configurable second parameter
@@ -87,6 +83,9 @@ print("Connected to UR5.")
 print("\nMoving robot to base position...")
 right_arm.move_to_base(rtde_r_R, rtde_c_R)
 print("Robot at base position.")
+
+# Initial robot configuration
+previous_robot_angles = np.deg2rad(rtde_r_R.getActualQ(), dtype=float)
 
 # Start prediction
 print("\n")
@@ -130,8 +129,7 @@ try:
                 robot_a, 
                 robot_d, 
                 robot_b, 
-                robot_tp,
-                min_clearance 
+                robot_tp, 
             ) 
                 
         except Exception as error: 
@@ -143,11 +141,20 @@ try:
             print("Unsafe target: non-finite joint values")
             continue
 
+        print("Previous joints (deg):",
+        np.round(np.rad2deg(previous_robot_angles), 2))
+
+        print("IK target (deg):",
+        np.round(np.rad2deg(robot_target), 2))
+
+        print("Joint step (deg):",
+        np.round(np.rad2deg(robot_target - previous_robot_angles), 2))
         # Send target to MPC/PID controller
         right_arm.move_with_prediction(rtde_r_R, rtde_c_R, robot_target)
         
         # Update previous robot configuration
-        previous_robot_angles = np.array(robot_target)
+        previous_robot_angles = np.deg2rad(rtde_r_R.getActualQ(), dtype=float)
+
 
 
     # Display results

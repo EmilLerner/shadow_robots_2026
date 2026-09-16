@@ -65,3 +65,5 @@ PROTECTIVE_STOP_DISTANCE = 0.028 # from ursim
 
 JOINT_MIN = np.deg2rad([-360.0, -360.0, -360.0, -360.0, -360.0, -360.0])
 JOINT_MAX = np.deg2rad([360.0, 360.0, 360.0, 360.0, 360.0, 360.0])
+
+MAX_JOINT_STEP = np.deg2rad(5.0)
