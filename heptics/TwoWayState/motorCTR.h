@@ -9,7 +9,10 @@ public:
     motorCTR();
 
     void connect();
+
+    void position_INIT();
     void turn(float speed);
+    void moveToPosition(float position, float speed);
 
     double getCurrent();
     int getPosition();
@@ -20,11 +23,13 @@ private:
     Lpf2Hub _hub;
 
     static const byte MOTOR_PORT =
-        (byte)PoweredUpHubPort::A;
+        (byte)PoweredUpHubPort::B;
 
     static const byte CURRENT_PORT = 59;
 
     volatile int _position = 0;
+    int maxPosition = 0;
+    int minPosition = 0;
     volatile double _current = 0.0;
 
     static motorCTR *_instance;

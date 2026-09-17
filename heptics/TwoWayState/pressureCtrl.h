@@ -1,12 +1,13 @@
-#ifndef PID_H
-#define PID_H
+#ifndef PRESSURECTRL_H
+#define PRESSURECTRL_H
 
 #include <Arduino.h>
 
 
+
 // main class for the PID control aspect. Responsible for both reading presure 
 // and running the ouptuts for simplicity 
-class PID {
+class pressureCtrl {
 private:
     const int pressurePin;
     const int pumpPin;
@@ -32,17 +33,19 @@ private:
 
 
 public:
-    PID(int pressurePin, int pumpPin, int valvePin, int hold, float Kp, float Ki);
+    pressureCtrl(int pressurePin, int pumpPin, int valvePin, int hold, float Kp, float Ki);
 
-    void PID_INIT();
+    void ctrl_INIT();
+
+    float getPressure();
 
     // void sensorRead();
 
     // void PID_MAXSET(int swtchPin);
 
-    void PID_update(float setpoint);
+    void ctrl_update(float setpoint);
 
-    void PID_plot();
+    void ctrl_plot();
 };
 
 #endif

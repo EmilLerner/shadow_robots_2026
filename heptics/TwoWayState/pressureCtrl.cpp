@@ -1,11 +1,11 @@
-#include "PID.h"
+#include "pressureCtrl.h"
 
 #define pwmChannel 0
 #define pwmFreq 5       // Hz — change to valve requirement
 #define pwmResolution 8   // 0–255
 
 
-PID::PID(int pressurePin,  int pumpPin, int valvePin, int hold, float Kp, float Ki)
+pressureCtrl::pressureCtrl(int pressurePin,  int pumpPin, int valvePin, int hold, float Kp, float Ki)
     : pressurePin(pressurePin),
       pumpPin(pumpPin),
       valvePin(valvePin),
@@ -17,7 +17,7 @@ PID::PID(int pressurePin,  int pumpPin, int valvePin, int hold, float Kp, float 
       reading(0) {  
 }
 
-void PID::PID_INIT() {
+void pressureCtrl::ctrl_INIT() {
   ledcSetup(pwmChannel, pwmFreq, pwmResolution);
   ledcAttachPin(valvePin, pwmChannel);
 
@@ -32,20 +32,23 @@ void PID::PID_INIT() {
 
 // }
 
-void PID::PID_update(float setpoint) {
+float pressureCtrl::getPressure() {
   reading = analogRead(pressurePin);
   pressure = (reading - minReading) /
                      (float)(maxReading - minReading);
   pressure = constrain(pressure, 0.0, 2.0);
+  return pressure;
+}
+
+void pressureCtrl::ctrl_update(float setpoint) {
+  getPressure();
 
   error = setpoint - pressure;
   integral += error * 0.02; 
   integral = constrain(integral, -1, 1);
   output = Kp * error + Ki * integral;
-  motorSpeed = output * 1024;
-  motorSpeed = constrain(motorSpeed, -255, 255);
+  motorSpeed = constrain(output * 1024, -255, 255);
 
-  if(reading > maxReading) output = -1;
 
   if (fabs(motorSpeed) < hold) {
     ledcWrite(pwmChannel, 255);
@@ -54,13 +57,13 @@ void PID::PID_update(float setpoint) {
     ledcWrite(pwmChannel, 255);
     dacWrite(pumpPin, (int)motorSpeed);
   } else {
-    ledcWrite(pwmChannel, (int)(255 + motorSpeed));
+    ledcWrite(pwmChannel, constrain(200 - (int)motorSpeed, 0, 255));
     dacWrite(pumpPin, 0);
   }
 
 }
 
-void PID::PID_plot() {
+void pressureCtrl::ctrl_plot() {
   Serial.print(pressure);
   Serial.print(",");
   Serial.print(output);

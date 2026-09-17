@@ -57,7 +57,7 @@ void pressureCtrl::ctrl_update(float setpoint) {
     ledcWrite(pwmChannel, 255);
     dacWrite(pumpPin, (int)motorSpeed);
   } else {
-    ledcWrite(pwmChannel, constrain(200 - (int)motorSpeed, 0, 255));
+    ledcWrite(pwmChannel, constrain(200 + (int)motorSpeed, 0, 255));
     dacWrite(pumpPin, 0);
   }
 
@@ -66,8 +66,8 @@ void pressureCtrl::ctrl_update(float setpoint) {
 void pressureCtrl::ctrl_plot() {
   Serial.print(pressure);
   Serial.print(",");
-  Serial.print(output);
-  Serial.print(",");
+  //Serial.print(output);
+  //Serial.print(",");
   Serial.print(motorSpeed / 255);
   Serial.print(",");
   Serial.print(0.0);

@@ -2,8 +2,6 @@
 // Emil Lerner 18/8/2026
 
 // testing 
-#define sampleNumber 200
-
 
 #define PUMP_PIN 26
 #define VALVE_PIN  25
@@ -11,11 +9,10 @@
 #define joyX_PIN 34
 #include "pressureCtrl.h"
 #include "motorCTR.h"
-#include <array>
 
 float Kp = 7;
 float Ki = 1;
-float hold = 10;
+float hold = 20;
 
 float baseSetpoint = 0.03;
 float setpoint = baseSetpoint;
@@ -33,26 +30,11 @@ int joyX;
 int position;
 
 
-
-
-int i = 0;
-float sum = 0.0;
-std::array<float, sampleNumber> samples{};
-
-
-float addSample(float x) {
-    sum -= samples[i];  // remove oldest
-    samples[i] = x;     // add newest
-    sum += x;
-
-    i = (i + 1) % sampleNumber;
-
-    return sum / (float)sampleNumber;
-}
-
-
 pressureCtrl controler1(PRESURE_PIN, PUMP_PIN, VALVE_PIN, hold, Kp, Ki);
+
+
 motorCTR motor;
+
 
 void setup() {
     Serial.begin(115200);
@@ -79,22 +61,20 @@ void loop() {
   joyX = constrain(((float)(joyX_raw - 1770) / 20.0f), -100, 100);
   position =  constrain(joyX, 0, 100);
 
-
-  current = motor.getCurrent() - baseCurrent;
-  addedPressure = addSample(current / 50.0f);
   pressure = controler1.getPressure();
   inputPressure = pressure - addedPressure;
-  if (position < 10) position = constrain(inputPressure * 200, 0, 100);
+  if (position < 10) position = constrain(inputPressure * 200 - 20, 0, 100);
 
-  
+  current = motor.getCurrent() - baseCurrent;
+  addedPressure = current / 30;
   setpoint = constrain(addedPressure, baseSetpoint, 1.5);
 
 
   motor.moveToPosition(position, 100);
 
-  //Serial.print(" Current: ");
-  Serial.print(current / 50.0f);
-  Serial.print(",");
+  Serial.print(" Current: ");
+  Serial.println(current);
+
   controler1.ctrl_update(setpoint);
   controler1.ctrl_plot();
 
