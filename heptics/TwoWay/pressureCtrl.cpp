@@ -63,6 +63,34 @@ void pressureCtrl::ctrl_update(float setpoint) {
 
 }
 
+
+float pressureCtrl::ctrl_updateSum(float addedPressure, float goalPressure) {
+  if (goalPressure < 10) goalPressure = 0;
+  getPressure();
+  
+  float setpoint = constrain(pressure + addedPressure, 0.03, 1.5);
+  error = setpoint - pressure;
+  integral += error * 0.02; 
+  integral = constrain(integral, -1.5, 1.5);
+  output = Kp * error + Ki * integral;
+  motorSpeed = constrain(output * 1024, -255, 255);
+
+
+  if (fabs(motorSpeed) < hold) {
+    ledcWrite(pwmChannel, 255);
+    dacWrite(pumpPin, 0);
+  } else if (motorSpeed > 0) {
+    ledcWrite(pwmChannel, 255);
+    dacWrite(pumpPin, (int)motorSpeed);
+  } else {
+    ledcWrite(pwmChannel, constrain(200 + (int)motorSpeed, 0, 255));
+    dacWrite(pumpPin, 0);
+  }
+
+  float inputPressure = pressure - integral;
+  return inputPressure;
+}
+
 void pressureCtrl::ctrl_plot() {
   Serial.print(pressure);
   Serial.print(",");
@@ -70,7 +98,7 @@ void pressureCtrl::ctrl_plot() {
   //Serial.print(",");
   Serial.print(motorSpeed / 255);
   Serial.print(",");
-  Serial.print(0.0);
+  Serial.print(-2);
   Serial.print(",");
-  Serial.println(0.7);   // Only the last value uses println()
+  Serial.println(2);   // Only the last value uses println()
 }

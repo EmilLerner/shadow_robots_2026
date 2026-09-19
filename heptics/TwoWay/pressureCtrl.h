@@ -45,6 +45,7 @@ public:
 
     void ctrl_update(float setpoint);
 
+    float ctrl_updateSum(float addedPressure, float goalPressure);
     void ctrl_plot();
 };
 

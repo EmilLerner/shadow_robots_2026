@@ -3,7 +3,8 @@
 
 // testing 
 #define sampleNumber 200
-
+#define ratioPC  10.0f
+#define stallCurrent  200.0f
 
 #define PUMP_PIN 26
 #define VALVE_PIN  25
@@ -14,8 +15,8 @@
 #include <array>
 
 float Kp = 7;
-float Ki = 1;
-float hold = 10;
+float Ki = 0;
+float hold = 5;
 
 float baseSetpoint = 0.03;
 float setpoint = baseSetpoint;
@@ -23,8 +24,10 @@ float setpoint = baseSetpoint;
 float pressure;
 float inputPressure;
 float addedPressure = 0;
+float goalPressure = 0;
 
-float current;
+float current = 0;
+float currentPrev = 0;
 float baseCurrent = 38.7;
 
 int joyX_raw;
@@ -79,23 +82,28 @@ void loop() {
   joyX = constrain(((float)(joyX_raw - 1770) / 20.0f), -100, 100);
   position =  constrain(joyX, 0, 100);
 
-
+  currentPrev = current;
   current = motor.getCurrent() - baseCurrent;
-  addedPressure = addSample(current / 50.0f);
-  pressure = controler1.getPressure();
-  inputPressure = pressure - addedPressure;
-  if (position < 10) position = constrain(inputPressure * 200, 0, 100);
+  addedPressure = (current - currentPrev) /  ratioPC;
+  goalPressure = current / ratioPC;
 
-  
-  setpoint = constrain(addedPressure, baseSetpoint, 1.5);
+  // pressure = controler1.getPressure();
+  if (current > 200)
+  inputPressure = controler1.ctrl_updateSum(addedPressure, goalPressure);
+  if (position < 10) position = constrain(inputPressure * 200 - 10, 0, 100);
+
 
 
   motor.moveToPosition(position, 100);
 
   //Serial.print(" Current: ");
-  Serial.print(current / 50.0f);
+  Serial.print(current / ratioPC);
   Serial.print(",");
-  controler1.ctrl_update(setpoint);
+  Serial.print(addedPressure);
+  Serial.print(",");
+  // Serial.print(setpoint);
+  // Serial.print(",");
+  
   controler1.ctrl_plot();
 
 
