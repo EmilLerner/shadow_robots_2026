@@ -2,10 +2,11 @@
 
 
 # Run straight through terminal, with Ethernet connection to the UR5e arms (and compute box)
-
-from flask import Flask, render_template_string, request
-from onrobot import RG      # https://github.com/takuya-ki/onrobot-rg/tree/main
 import time
+import threading
+
+
+from onrobot import RG      # https://github.com/takuya-ki/onrobot-rg/tree/main
 from rtde_receive import RTDEReceiveInterface as RTDEReceive
 
 
@@ -17,17 +18,20 @@ from rtde_receive import RTDEReceiveInterface as RTDEReceive
 robot_right = RTDEReceive('192.168.0.183', 125, [], True, False, 90)  # Adjust IP of UR5e here
 robot_left = RTDEReceive('192.168.0.222', 125, [], True, False, 90)
 
-app = Flask(__name__)
+
 rg_right = RG('rg6', '192.168.0.232', 502)      # Adjust IP of grippers here
 rg_right.set_target_force(100)                  # in 1/10th Newtons
+
 rg_left = RG('rg6', '192.168.0.101', 502)
 rg_left.set_target_force(100)
+
 print(robot_right.getSafetyStatusBits())        # Check validity of status bits
 print(robot_left.getSafetyStatusBits())
 
 # Shared variable indicating whether to keep closing
 keep_closing_right = False
 keep_closing_left = False
+
 leftForce = 0
 rightForce = 0
 
@@ -72,15 +76,13 @@ def gripper_loop():     # Main loop for gripper - mainly required for continuous
 
 def closeRight(force):
     global keep_closing_right
+    global rightForce
+
     keep_closing_right = True
     rightForce = force
     return 'Closing right started'
 
-def closeRight(force):
-    global keep_closing_left
-    keep_closing_left = True
-    rightForce = force
-    return 'Closing left started'
+
 
 def openRight():
     global keep_closing_right
@@ -89,8 +91,15 @@ def openRight():
         rg_right.move_gripper(1200)
         while rg_right.get_status()[0]:  # wait until motion finishes
             time.sleep(0.1)
-    return 'Gripper opened'
+    return 'Opening right started'
     
+def closeLeft(force):
+    global keep_closing_left
+    global leftForce
+    keep_closing_left = True
+    rightForce = force
+    return 'Closing left started'
+
 def openLeft():
     global keep_closing_left
     keep_closing_left = False  # stop the repeated close
@@ -98,7 +107,7 @@ def openLeft():
         rg_left.move_gripper(1200)
         while rg_left.get_status()[0]:  # wait until motion finishes
             time.sleep(0.1)
-    return 'Gripper opened'
+    return 'Opening left started'
 
 
 def gripDetectedRight():
@@ -106,3 +115,10 @@ def gripDetectedRight():
 
 def gripDetectedLeft():
     return 'maybe'
+
+_gripper_thread = threading.Thread(
+    target=gripper_loop,
+    daemon=True
+)
+
+_gripper_thread.start()
