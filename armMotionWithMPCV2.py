@@ -6,7 +6,9 @@ from mpcControllerV6 import MPCController
 
 
 class ArmMotion():
-    def __init__(self):
+    def __init__(self, arm_name = "name"):
+
+        self.arm_name =  arm_name;
 
         # ---- Robot Arm Settings ----
         self.q_real = np.deg2rad([0, -90, 0, -90, 0, 0])
@@ -109,13 +111,16 @@ class ArmMotion():
                         break
                 if valid_gains:
                     self.pid.update_gains(optimized_gains["Kp"], optimized_gains["Ki"], optimized_gains["Kd"])
-                    print(f"MPC update | " f"time={self.last_mpc_time * 1000:.1f} ms")
+                    print(
+                        f"{self.arm_name} MPC update | " 
+                        f"time={self.last_mpc_time * 1000:.1f} ms"
+                        )
                 else:
                     print("MPC returned invalid gains. " 
                           "Keeping previous PID gains.")
             except Exception as error:
                 self.last_mpc_time = (time.perf_counter() - mpc_start)
-                print("MPC optimisation exception: ", error)
+                print(f"{self.arm_name} MPC optimisation exception: ", error)
                 print("Keeping previous PID gains.")
 
         # calculate joint velocities
