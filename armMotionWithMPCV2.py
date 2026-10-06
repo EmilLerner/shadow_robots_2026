@@ -4,6 +4,8 @@ import numpy as np
 from pidController import PIDcontroller
 from mpcControllerV6 import MPCController
 
+import inverse_kinematics_solver5 as iks
+
 
 class ArmMotion():
     def __init__(self, arm_name = "name"):
@@ -11,7 +13,7 @@ class ArmMotion():
         self.arm_name =  arm_name;
 
         # ---- Robot Arm Settings ----
-        self.q_real = np.deg2rad([0, -90, 0, -90, 0, 0])
+        self.q_real = np.deg2rad([0, -200, 45, -25, 80, 0])
 
         Kp = np.array([3.0, 3.0, 3.0, 2.2, 1.8, 1.6], dtype=float)
         Ki = np.array([0.01, 0.01, 0.01, 0.01, 0.01, 0.01], dtype=float)

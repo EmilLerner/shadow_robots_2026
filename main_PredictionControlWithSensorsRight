@@ -1,0 +1,457 @@
+import numpy as np
+import joblib
+import VariableConfig
+import rtde_control, rtde_receive
+import sys
+import time
+import xsensdeviceapi as xda
+from inverse_kinematics_solver5 import choose_best_ik
+from PredictionV2_1 import (predict_human_motion, human_forward_kinematics)
+from armMotionWithMPCV3 import ArmMotion
+from wirelessMasterCallback import WirelessMasterCallback
+from mtwManipulator import MtwManipulator
+
+# Load training parameters
+prediction_horizon = VariableConfig.PREDICTION_HORIZON
+imu_features = VariableConfig.IMU_FEATURES
+model_filename = VariableConfig.MODEL_FILENAME
+
+# Load human arm parameters
+upper_arm_length = VariableConfig.UPPER_ARM_LENGTH
+forearm_length = VariableConfig.FOREARM_LENGTH 
+hand_length = VariableConfig.HAND_LENGTH 
+
+# Load IK parameters
+robot_a = VariableConfig.ROBOT_A
+robot_d = VariableConfig.ROBOT_D
+robot_b = VariableConfig.ROBOT_B
+robot_tp = VariableConfig.ROBOT_TP
+
+# Safety clearance
+min_clearance = VariableConfig.MIN_CLEARANCE
+
+ROBOT_IP_RIGHT = "127.0.0.1"
+    # ROBOT_IP_RIGHT = "192.168.0.183" # REAL IP, DON'T USE FOR TESTING AND DEBUGGING
+    # ROBOT_IP_RIGHT = "172.23.252.37"
+
+# Initialise sensors
+print("\nStarting Xsens system...")
+desired_update_rate = 80
+desired_radio_channel = 19
+
+mtws = {
+    "00B4F1B0": "SHOU R",
+    "00B4F747": "fARM R",
+    "00B4F1B5": "HAND R"
+}
+
+
+def build_imu_input(acc_data, gyro_data):
+    # S2: Wrist
+    wrist_acc = acc_data["HAND R"]
+    wrist_gyro = gyro_data["HAND R"]
+
+    # S3: Forearm
+    forearm_acc = acc_data["fARM R"]
+    forearm_gyro = gyro_data["fARM R"]
+
+    # S4: Biceps
+    biceps_acc = acc_data["SHOU R"]
+    biceps_gyro = gyro_data["SHOU R"]
+
+
+    imu_input = np.array([
+
+        # S2 - Wrist
+        wrist_acc[0],
+        wrist_acc[1],
+        wrist_acc[2],
+        wrist_gyro[0],
+        wrist_gyro[1],
+        wrist_gyro[2],
+
+        # S3 - Forearm
+        forearm_acc[0],
+        forearm_acc[1],
+        forearm_acc[2],
+        forearm_gyro[0],
+        forearm_gyro[1],
+        forearm_gyro[2],
+
+        # S4 - Biceps
+        biceps_acc[0],
+        biceps_acc[1],
+        biceps_acc[2],
+        biceps_gyro[0],
+        biceps_gyro[1],
+        biceps_gyro[2],
+
+    ], dtype=float)
+
+    return imu_input
+
+
+def print_sensor_values(acc_data, gyro_data):
+    """
+    Print the current live sensor values.
+    """
+    print("\n---------------- SENSOR DATA ----------------")
+
+    print("\nS2 - Wrist")
+    print("ACC :", np.round(acc_data["HAND R"], 4))
+    print("GYRO:", np.round(gyro_data["HAND R"], 4))
+    print("\nS3 - Forearm")
+    print("ACC :", np.round(acc_data["fARM R"], 4))
+    print("GYRO:", np.round(gyro_data["fARM R"], 4))
+    print("\nS4 - Biceps")
+    print("ACC :", np.round(acc_data["SHOU R"], 4))
+    print("GYRO:", np.round(gyro_data["SHOU R"], 4))
+
+
+def print_prediction(predicted_human_angles,predicted_human_position):
+    print("\n---------------- PREDICTION ----------------")
+    print("\nPredicted human joint angles:")
+    print(f"  Shoulder flexion: "f"{predicted_human_angles[0]:.2f} deg")
+    print(f"  Shoulder adduction: "f"{predicted_human_angles[1]:.2f} deg")
+    print(f"  Shoulder rotation: "f"{predicted_human_angles[2]:.2f} deg")
+    print(f"  Elbow flexion: "f"{predicted_human_angles[3]:.2f} deg")
+    print(f"  Pronation/Supination: "f"{predicted_human_angles[4]:.2f} deg")
+    print(f"  Wrist flexion: "f"{predicted_human_angles[5]:.2f} deg")
+    print(f"  Wrist deviation: "f"{predicted_human_angles[6]:.2f} deg")
+    print("\nPredicted human hand position:")
+    print(f"  X = {predicted_human_position[0]:.4f} m")
+    print(f"  Y = {predicted_human_position[1]:.4f} m")
+    print(f"  Z = {predicted_human_position[2]:.4f} m")
+
+
+def stop_robot(rtde_r, rtde_c):
+    """
+    Safely stop and disconnect the robot.
+    """
+    print("\nStopping robot...")
+    if rtde_c is not None:
+        try:
+            rtde_c.speedStop()
+        except Exception:
+            pass
+        try:
+            rtde_c.stopScript()
+        except Exception:
+            pass
+        try:
+            rtde_c.disconnect()
+        except Exception:
+            pass
+
+    if rtde_r is not None:
+        try:
+            rtde_r.disconnect()
+        except Exception:
+            pass
+    print("Robot connection closed.")
+
+
+def stop_xsens(control):
+    """
+    Safely close Xsens.
+    """
+    if control is not None:
+        try:
+            control.close()
+        except Exception:
+            pass
+    print("Xsens system closed.")
+
+
+def main():
+
+    model = None
+    control = None
+    rtde_c_R = None
+    rtde_r_R = None
+
+    try:
+        # Start 
+        print("=" * 70)
+        print("HUMAN MOTION PREDICTION + UR5 CONTROL")
+        print("=" * 70)
+        print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.0f} ms")
+
+        # Load Random Forest model
+        print("\nLoading Random Forest model...")
+        model = joblib.load(model_filename, mmap_mode="r")
+        print("Model loaded successfully.")
+
+        print("\nMODEL DEBUG")
+        print("Model filename:", model_filename)
+        print("Model type:", type(model))
+        print("Model contents:", model)
+
+        print("\nRandom Forest input features:")
+        for i, feature in enumerate(imu_features):
+            print(f" {i:2d}: {feature}")
+
+        print(f"\nNumber of model input features: "f"{len(imu_features)}")
+        if len(imu_features) != 18:
+            raise ValueError("Expected exactly 18 IMU input features.")
+
+        # Initialise robot control
+        print("\nConnecting to UR5...")
+        right_arm = ArmMotion() # Configurable second parameter
+        rtde_c_R = rtde_control.RTDEControlInterface(ROBOT_IP_RIGHT)
+        rtde_r_R = rtde_receive.RTDEReceiveInterface(ROBOT_IP_RIGHT)
+        print("Connected to UR5.")
+
+        # Initialise sensors
+        print("\nStarting Xsens system...")
+        wireless_master_callback = WirelessMasterCallback()
+        control = xda.XsControl.construct()
+
+        if control is None:
+                    raise RuntimeError("Failed to construct XsControl")
+        
+        print("Constructing XsControl...")
+
+        manipulator = MtwManipulator(
+                control,
+                wireless_master_callback,
+                desired_update_rate,
+                desired_radio_channel,
+                mtws
+            )
+
+        print("Scanning for Xsens devices...")
+        manipulator.scanXsDevices()
+        print("Starting configuration mode...")
+        manipulator.startConfigMode()
+        print("Waiting for MTw connections...")
+        manipulator.waitForConnections()
+        print("Starting measurement...")
+        manipulator.startMeasurement()
+        manipulator.resetOrientationData()
+        manipulator.startRecording()
+        mtw_callbacks = manipulator.getMtwCallbacks()
+        print(f"\nConnected MTw callbacks: "f"{len(mtw_callbacks)}")
+        print("Xsens system ready.")
+
+        acc_data = {
+            "SHOU R": np.zeros(3),
+            "fARM R": np.zeros(3),
+            "HAND R": np.zeros(3)
+        }
+
+        gyro_data = {
+            "SHOU R": np.zeros(3),
+            "fARM R": np.zeros(3),
+            "HAND R": np.zeros(3)
+        }
+
+        # Keep track of whether each sensor has supplied
+        # at least one packet.
+        sensor_received = {
+            "SHOU R": False,
+            "fARM R": False,
+            "HAND R": False
+        }
+
+        # Sensor debug
+        print("\nExpected Xsens sensors:")
+        for sensor_id, bodypart in mtws.items():
+            print(f"  {sensor_id} -> {bodypart}")
+        print()
+
+        # Wait for initial xsens data
+        print("\nWaiting for initial Xsens measurements...")
+
+        # Main live loop
+        while not all(sensor_received.values()):
+            # Read Xsens packets
+            for i in range(len(mtw_callbacks)):
+                if mtw_callbacks[i].dataAvailable():
+                    new_data_available = True
+
+                    # Get oldest available packet
+                    packet = (mtw_callbacks[i].getOldestPacket())
+
+                    # Get device ID
+                    mtw_deviceID = str(mtw_callbacks[i].device().deviceId())
+
+                    # Convert device ID to body-part name
+                    bodypart_name = mtws.get(mtw_deviceID)
+
+                    # Debug sensor mapping
+                    print(f"Sensor ID: "f"{mtw_deviceID} "f"-> {bodypart_name}")
+
+                    if bodypart_name is not None:
+                        # acceleration
+                        acc = np.asarray(packet.calibratedAcceleration(), dtype=float)
+
+                        # gyroscope
+                        gyro = np.asarray(packet.calibratedGyroscopeData(), dtype=float)
+
+                        # Store data
+                        acc_data[bodypart_name] = acc
+                        gyro_data[bodypart_name] = gyro
+                        sensor_received[bodypart_name] = True
+                        print(f"Received initial data "f"from {bodypart_name}")
+
+                    # Delete processed packet
+                    mtw_callbacks[i].deleteOldestPacket()
+
+                time.sleep(0.001)
+
+            print("\nInitial Xsens measurements received.")
+
+
+            # Move robot to base position
+            print("\nMoving robot to base position...")
+            right_arm.move_to_base(rtde_r_R, rtde_c_R)
+            print("Robot at base position.")
+
+            # Initial robot configuration
+            previous_robot_angles = np.array(rtde_r_R.getActualQ(), dtype=float)
+            print("\nInitial robot joint angles (deg):")
+            print(np.round(np.rad2deg(previous_robot_angles), 2))
+
+            # Start live prediction control
+            print("\n")
+            print("=" * 70)
+            print("STARTING LIVE SENSOR + PREDICTION + ROBOT CONTROL")
+            print("=" * 70)
+            print("\nPress Ctrl+C to stop.")
+            print("\nWaiting for initial Xsens measurements...")
+
+            # Main live loop
+        while True:
+            new_data_available = False
+
+            # Read Xsens packets
+            for i in range(len(mtw_callbacks)):
+                if mtw_callbacks[i].dataAvailable():
+                    new_data_available = True
+
+                    # Get oldest available packet
+                    packet = (mtw_callbacks[i].getOldestPacket())
+
+                    # Get device ID
+                    mtw_deviceID = str(mtw_callbacks[i].device().deviceId())
+
+                    # Convert device ID to body-part name
+                    bodypart_name = mtws.get(mtw_deviceID)
+
+                    # Debug sensor mapping
+                    print(f"Sensor ID: "f"{mtw_deviceID} "f"-> {bodypart_name}")
+
+                    if bodypart_name is not None:
+                        # acceleration
+                        acc = np.asarray(packet.calibratedAcceleration(), dtype=float)
+
+                        # gyroscope
+                        gyro = np.asarray(packet.calibratedGyroscopeData(), dtype=float)
+
+                        # Store data
+                        acc_data[bodypart_name] = acc
+                        gyro_data[bodypart_name] = gyro
+                        sensor_received[bodypart_name] = True
+                        print(f"Received initial data "f"from {bodypart_name}")
+
+                    # Delete processed packet
+                    mtw_callbacks[i].deleteOldestPacket()
+
+            if not new_data_available:
+                time.sleep(0.001)
+                continue
+
+            if not all(sensor_received.values()):
+                            continue
+
+            imu_input = build_imu_input(acc_data, gyro_data)
+
+            # Check input
+            if not np.all(np.isfinite(imu_input)):
+                print("\nWARNING: Invalid IMU input.")
+                continue
+
+            # debug sensor values
+            print_sensor_values(acc_data, gyro_data)
+            print("\n18-element model input:")
+            print(np.round(imu_input, 4))
+
+            # Random forest prediction
+            predicted_human_angles = (predict_human_motion(model, imu_input, imu_features))
+
+            # Check prediction
+            if not np.all(np.isfinite(predicted_human_angles)):
+                print("\nWARNING: Random Forest returned invalid values.")
+                continue
+
+            # Human forward kinematics
+            (
+                predicted_human_position,
+                predicted_human_rotation
+            ) = human_forward_kinematics(
+                predicted_human_angles,
+                upper_arm_length,
+                forearm_length,
+                hand_length
+            )
+
+            # Display prediction
+            print_prediction(predicted_human_angles, predicted_human_position)
+
+            # Inverse kineatics
+            try: 
+                robot_target = choose_best_ik( 
+                    previous_robot_angles, 
+                    predicted_human_position, 
+                    predicted_human_rotation, 
+                    robot_a, 
+                    robot_d, 
+                    robot_b, 
+                    robot_tp, 
+                ) 
+                    
+            except Exception as error: 
+                print("\nIK ERROR:") 
+                print(error) 
+                continue
+
+            if not np.all(np.isfinite(robot_target)):
+                print("Unsafe target: non-finite joint values")
+                continue
+
+            print("Previous joints (deg):",
+            np.round(np.rad2deg(previous_robot_angles), 2))
+
+            print("IK target (deg):",
+            np.round(np.rad2deg(robot_target), 2))
+
+            print("Joint step (deg):",
+            np.round(np.rad2deg(robot_target - previous_robot_angles), 2))
+            # Send target to MPC/PID controller
+            right_arm.move_with_prediction(rtde_r_R, rtde_c_R, robot_target)
+            
+            # Update previous robot configuration
+            previous_robot_angles = np.array(rtde_r_R.getActualQ(), dtype=float)
+
+    except KeyboardInterrupt: 
+        print("\n\nProgram stopped by user.") 
+
+    except Exception as error: 
+            print("\n\nCONTROL ERROR:") 
+            print(error) 
+            import traceback
+            traceback.print_exc()
+
+    # Clean up
+    finally:
+        print("\nCleaning up...")
+        stop_robot(rtde_r_R, rtde_c_R)
+        stop_xsens(control)
+        print("Program terminated.")
+
+
+if __name__ == "__main__":
+    main()
+
+
