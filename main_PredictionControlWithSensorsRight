@@ -40,9 +40,9 @@ desired_update_rate = 80
 desired_radio_channel = 19
 
 mtws = {
-    "00B4F1B0": "SHOU R",
-    "00B4F747": "fARM R",
-    "00B4F1B5": "HAND R"
+    "00B4F199": "HAND R",
+    "00B4F1B3": "fARM R",
+    "00B4F744": "SHOU R"
 }
 
 

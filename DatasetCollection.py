@@ -17,11 +17,20 @@ RADIO_CHANNEL = 19
 OUTPUT_FILE = "imu_dataset.csv"
 
 
-# Actual sensor IDs detected from your Xsens system
-SENSOR_IDS = {
-    "S2": "00B4F199",
-    "S3": "00B4F744",
-    "S4": "00B4F130"
+# ============================================================
+# SENSOR MAPPING
+# ============================================================
+
+# Actual IDs from your Xsens system
+#
+# S2 = wrist
+# S3 = forearm
+# S4 = biceps / upper arm
+
+mtws = {
+    "00B4F199": "S2",
+    "00B4F1B3": "S3",
+    "00B4F744": "S4"
 }
 
 
@@ -30,28 +39,59 @@ SENSOR_IDS = {
 # ============================================================
 
 columns = [
+
     "timestamp",
+
+    # -------------------------
+    # S2
+    # -------------------------
 
     "S2_ACC_X",
     "S2_ACC_Y",
     "S2_ACC_Z",
+
     "S2_GYRO_X",
     "S2_GYRO_Y",
     "S2_GYRO_Z",
 
+    "S2_QUAT_W",
+    "S2_QUAT_X",
+    "S2_QUAT_Y",
+    "S2_QUAT_Z",
+
+    # -------------------------
+    # S3
+    # -------------------------
+
     "S3_ACC_X",
     "S3_ACC_Y",
     "S3_ACC_Z",
+
     "S3_GYRO_X",
     "S3_GYRO_Y",
     "S3_GYRO_Z",
 
+    "S3_QUAT_W",
+    "S3_QUAT_X",
+    "S3_QUAT_Y",
+    "S3_QUAT_Z",
+
+    # -------------------------
+    # S4
+    # -------------------------
+
     "S4_ACC_X",
     "S4_ACC_Y",
     "S4_ACC_Z",
+
     "S4_GYRO_X",
     "S4_GYRO_Y",
-    "S4_GYRO_Z"
+    "S4_GYRO_Z",
+
+    "S4_QUAT_W",
+    "S4_QUAT_X",
+    "S4_QUAT_Y",
+    "S4_QUAT_Z"
 ]
 
 
@@ -65,14 +105,13 @@ control = xda.XsControl.construct()
 
 wireless_master_callback = WirelessMasterCallback()
 
-mtw_callbacks = {}
 
 mtw_manipulator = MtwManipulator(
     control,
     wireless_master_callback,
     UPDATE_RATE,
     RADIO_CHANNEL,
-    mtw_callbacks
+    mtws
 )
 
 
@@ -84,62 +123,114 @@ print("\nScanning for Xsens devices...")
 
 mtw_manipulator.scanXsDevices()
 
-print("Starting configuration mode...")
+
+# ============================================================
+# CONFIGURATION MODE
+# ============================================================
+
+print("\nStarting configuration mode...")
 
 mtw_manipulator.startConfigMode()
 
-print("Waiting for sensor connections...")
+
+# ============================================================
+# WAIT FOR MTWs
+# ============================================================
+
+print("\nWaiting for sensor connections...")
 
 mtw_manipulator.waitForConnections()
 
-print("Starting measurement...")
+
+# ============================================================
+# START MEASUREMENT
+# ============================================================
+
+print("\nStarting measurement...")
 
 mtw_manipulator.startMeasurement()
 
-print("Resetting orientation data...")
+
+# ============================================================
+# RESET ORIENTATION
+# ============================================================
+
+print("\nResetting orientation data...")
 
 mtw_manipulator.resetOrientationData()
 
-print("Starting recording...")
+
+# ============================================================
+# START RECORDING
+# ============================================================
+
+print("\nStarting recording...")
 
 mtw_manipulator.startRecording()
 
 
 # ============================================================
-# CHECK CALLBACKS
+# OPEN DATASET
 # ============================================================
 
-print("\nCallbacks available:")
+# Make sure an old CSV is not open in Excel
+if os.path.exists(OUTPUT_FILE):
 
-print(mtw_callbacks)
+    print(
+        f"\nWARNING: {OUTPUT_FILE} already exists."
+    )
+
+    print(
+        "The new recording will overwrite it."
+    )
 
 
-# ============================================================
-# OPEN CSV
-# ============================================================
+try:
 
-file_exists = os.path.exists(OUTPUT_FILE)
+    csv_file = open(
+        OUTPUT_FILE,
+        "w",
+        newline=""
+    )
 
-csv_file = open(
-    OUTPUT_FILE,
-    "a",
-    newline=""
-)
+except PermissionError:
+
+    print(
+        f"\nERROR: Cannot open {OUTPUT_FILE}."
+    )
+
+    print(
+        "Make sure the CSV is not open in Excel or another program."
+    )
+
+    raise
+
 
 writer = csv.writer(csv_file)
 
-if not file_exists:
-    writer.writerow(columns)
+writer.writerow(columns)
 
 
 # ============================================================
-# RECORDING
+# START DATA COLLECTION
 # ============================================================
 
 print("\n========================================")
 print("        IMU DATA COLLECTION")
 print("========================================")
-print("Move your arm naturally.")
+
+print("S2 = Wrist")
+print("S3 = Forearm")
+print("S4 = Biceps / Upper Arm")
+
+print("\nCollecting:")
+
+print("  - Accelerometer")
+print("  - Gyroscope")
+print("  - Quaternion")
+
+print("\nMove your arm naturally.")
+
 print("Press Ctrl+C to stop recording.\n")
 
 
@@ -152,99 +243,154 @@ try:
 
     while True:
 
-        # ----------------------------------------------------
-        # Data from each sensor
-        # ----------------------------------------------------
+        # ====================================================
+        # GET CALLBACKS
+        # ====================================================
+
+        callbacks = mtw_manipulator.getMtwCallbacks()
+
+
+        # ====================================================
+        # TEMPORARY SENSOR DATA
+        # ====================================================
 
         sensor_data = {
+
             "S2": None,
             "S3": None,
             "S4": None
         }
 
 
-        # ----------------------------------------------------
-        # Read all available packets
-        # ----------------------------------------------------
+        # ====================================================
+        # READ ONE PACKET FROM EACH SENSOR
+        # ====================================================
 
-        for sensor_id, callback in mtw_callbacks.items():
+        for callback in callbacks:
 
-            while callback.dataAvailable():
-
-                packet = callback.getOldestPacket()
-
-                device_id = str(packet.deviceId())
-
-                # --------------------------------------------
-                # Identify sensor
-                # --------------------------------------------
-
-                sensor_name = None
-
-                for name, configured_id in SENSOR_IDS.items():
-
-                    if device_id == configured_id:
-                        sensor_name = name
-                        break
+            if not callback.dataAvailable():
+                continue
 
 
-                if sensor_name is None:
+            # ------------------------------------------------
+            # Get packet
+            # ------------------------------------------------
 
-                    callback.deleteOldestPacket()
-
-                    continue
-
-
-                # --------------------------------------------
-                # Accelerometer
-                # --------------------------------------------
-
-                acc = packet.calibratedAcceleration()
-
-                acc_x = float(acc[0])
-                acc_y = float(acc[1])
-                acc_z = float(acc[2])
+            packet = callback.getOldestPacket()
 
 
-                # --------------------------------------------
-                # Gyroscope
-                # --------------------------------------------
+            # ------------------------------------------------
+            # Get sensor ID
+            # ------------------------------------------------
 
-                gyro = packet.calibratedGyroscopeData()
-
-                gyro_x = float(gyro[0])
-                gyro_y = float(gyro[1])
-                gyro_z = float(gyro[2])
+            sensor_id = str(
+                callback.device().deviceId()
+            )
 
 
-                sensor_data[sensor_name] = [
-                    acc_x,
-                    acc_y,
-                    acc_z,
-                    gyro_x,
-                    gyro_y,
-                    gyro_z
-                ]
+            # ------------------------------------------------
+            # Convert sensor ID to body part
+            # ------------------------------------------------
 
+            bodypart = mtws.get(sensor_id)
+
+
+            if bodypart is None:
 
                 callback.deleteOldestPacket()
 
+                continue
+
+
+            # =================================================
+            # ACCELEROMETER
+            # =================================================
+
+            acceleration = packet.calibratedAcceleration()
+
+            acc_x = float(acceleration[0])
+            acc_y = float(acceleration[1])
+            acc_z = float(acceleration[2])
+
+
+            # =================================================
+            # GYROSCOPE
+            # =================================================
+
+            gyroscope = packet.calibratedGyroscopeData()
+
+            gyro_x = float(gyroscope[0])
+            gyro_y = float(gyroscope[1])
+            gyro_z = float(gyroscope[2])
+
+
+            # =================================================
+            # QUATERNION
+            # =================================================
+
+            quaternion = packet.orientationQuaternion()
+
+            quat_w = float(quaternion[0])
+            quat_x = float(quaternion[1])
+            quat_y = float(quaternion[2])
+            quat_z = float(quaternion[3])
+
+
+            # =================================================
+            # STORE DATA
+            # =================================================
+
+            sensor_data[bodypart] = [
+
+                acc_x,
+                acc_y,
+                acc_z,
+
+                gyro_x,
+                gyro_y,
+                gyro_z,
+
+                quat_w,
+                quat_x,
+                quat_y,
+                quat_z
+            ]
+
+
+            # ------------------------------------------------
+            # Remove packet from callback queue
+            # ------------------------------------------------
+
+            callback.deleteOldestPacket()
+
 
         # ====================================================
-        # SAVE ONLY WHEN ALL THREE SENSORS HAVE NEW DATA
+        # ONLY SAVE WHEN ALL THREE SENSORS HAVE DATA
         # ====================================================
 
         if (
+
             sensor_data["S2"] is not None
-            and sensor_data["S3"] is not None
-            and sensor_data["S4"] is not None
+            and
+            sensor_data["S3"] is not None
+            and
+            sensor_data["S4"] is not None
+
         ):
 
-            timestamp = time.perf_counter() - start_time
+            timestamp = (
+                time.perf_counter() - start_time
+            )
 
+
+            # =================================================
+            # CREATE CSV ROW
+            # =================================================
 
             row = [
+
                 timestamp,
+
 
                 # -------------------------
                 # S2
@@ -253,9 +399,16 @@ try:
                 sensor_data["S2"][0],
                 sensor_data["S2"][1],
                 sensor_data["S2"][2],
+
                 sensor_data["S2"][3],
                 sensor_data["S2"][4],
                 sensor_data["S2"][5],
+
+                sensor_data["S2"][6],
+                sensor_data["S2"][7],
+                sensor_data["S2"][8],
+                sensor_data["S2"][9],
+
 
                 # -------------------------
                 # S3
@@ -264,9 +417,16 @@ try:
                 sensor_data["S3"][0],
                 sensor_data["S3"][1],
                 sensor_data["S3"][2],
+
                 sensor_data["S3"][3],
                 sensor_data["S3"][4],
                 sensor_data["S3"][5],
+
+                sensor_data["S3"][6],
+                sensor_data["S3"][7],
+                sensor_data["S3"][8],
+                sensor_data["S3"][9],
+
 
                 # -------------------------
                 # S4
@@ -275,11 +435,21 @@ try:
                 sensor_data["S4"][0],
                 sensor_data["S4"][1],
                 sensor_data["S4"][2],
+
                 sensor_data["S4"][3],
                 sensor_data["S4"][4],
-                sensor_data["S4"][5]
+                sensor_data["S4"][5],
+
+                sensor_data["S4"][6],
+                sensor_data["S4"][7],
+                sensor_data["S4"][8],
+                sensor_data["S4"][9]
             ]
 
+
+            # =================================================
+            # WRITE DATA
+            # =================================================
 
             writer.writerow(row)
 
@@ -288,15 +458,19 @@ try:
             sample_count += 1
 
 
-            # ----------------------------------------------
-            # Display progress every second
-            # ----------------------------------------------
+            # =================================================
+            # DISPLAY PROGRESS
+            # =================================================
 
             if sample_count % UPDATE_RATE == 0:
 
-                elapsed = time.perf_counter() - start_time
+                elapsed = (
+                    time.perf_counter() - start_time
+                )
 
-                actual_rate = sample_count / elapsed
+                actual_rate = (
+                    sample_count / elapsed
+                )
 
                 print(
                     f"Samples: {sample_count:6d} | "
@@ -305,15 +479,12 @@ try:
                 )
 
 
-        # ----------------------------------------------------
-        # Small delay to prevent excessive CPU usage
-        # ----------------------------------------------------
-
+        # Small delay
         time.sleep(0.001)
 
 
 # ============================================================
-# STOP
+# STOP RECORDING
 # ============================================================
 
 except KeyboardInterrupt:
@@ -325,27 +496,42 @@ finally:
 
     csv_file.close()
 
-    try:
-        mtw_manipulator.stopRecording()
-    except:
-        pass
 
     try:
-        mtw_manipulator.stopMeasurement()
-    except:
+
+        mtw_manipulator.stopRecording()
+
+    except Exception:
+
         pass
+
+
+    try:
+
+        mtw_manipulator.stopMeasurement()
+
+    except Exception:
+
+        pass
+
 
     print("\n========================================")
     print("           RECORDING COMPLETE")
     print("========================================")
 
-    print(f"Samples recorded: {sample_count}")
+    print(
+        f"Samples recorded: {sample_count}"
+    )
 
-    print(f"Dataset saved to: {OUTPUT_FILE}")
+    print(
+        f"Dataset saved to: {OUTPUT_FILE}"
+    )
 
     if sample_count > 0:
 
-        elapsed = time.perf_counter() - start_time
+        elapsed = (
+            time.perf_counter() - start_time
+        )
 
         print(
             f"Average sample rate: "
