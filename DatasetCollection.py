@@ -11,10 +11,10 @@ from mtwManipulator import MtwManipulator
 # SETTINGS
 # ============================================================
 
-UPDATE_RATE = 80
-RADIO_CHANNEL = 19
+update_rate = 80
+radio_channel = 19
 
-OUTPUT_FILE = "imu_dataset.csv"
+output_file = "imu_dataset.csv"
 
 
 # ============================================================
@@ -34,66 +34,47 @@ mtws = {
 }
 
 
-# ============================================================
-# CSV COLUMNS
-# ============================================================
-
-columns = [
+# Final dataset columns
+DATASET_COLS = [
 
     "timestamp",
 
-    # -------------------------
     # S2
-    # -------------------------
+    "S2_ACC_X_R",
+    "S2_ACC_Y_R",
+    "S2_ACC_Z_R",
+    "S2_GYRO_X_R",
+    "S2_GYRO_Y_R",
+    "S2_GYRO_Z_R",
+    "S2_QUAT_W_R",
+    "S2_QUAT_X_R",
+    "S2_QUAT_Y_R",
+    "S2_QUAT_Z_R",
 
-    "S2_ACC_X",
-    "S2_ACC_Y",
-    "S2_ACC_Z",
-
-    "S2_GYRO_X",
-    "S2_GYRO_Y",
-    "S2_GYRO_Z",
-
-    "S2_QUAT_W",
-    "S2_QUAT_X",
-    "S2_QUAT_Y",
-    "S2_QUAT_Z",
-
-    # -------------------------
     # S3
-    # -------------------------
+    "S3_ACC_X_R",
+    "S3_ACC_Y_R",
+    "S3_ACC_Z_R",
+    "S3_GYRO_X_R",
+    "S3_GYRO_Y_R",
+    "S3_GYRO_Z_R",
+    "S3_QUAT_W_R",
+    "S3_QUAT_X_R",
+    "S3_QUAT_Y_R",
+    "S3_QUAT_Z_R",
 
-    "S3_ACC_X",
-    "S3_ACC_Y",
-    "S3_ACC_Z",
-
-    "S3_GYRO_X",
-    "S3_GYRO_Y",
-    "S3_GYRO_Z",
-
-    "S3_QUAT_W",
-    "S3_QUAT_X",
-    "S3_QUAT_Y",
-    "S3_QUAT_Z",
-
-    # -------------------------
     # S4
-    # -------------------------
-
-    "S4_ACC_X",
-    "S4_ACC_Y",
-    "S4_ACC_Z",
-
-    "S4_GYRO_X",
-    "S4_GYRO_Y",
-    "S4_GYRO_Z",
-
-    "S4_QUAT_W",
-    "S4_QUAT_X",
-    "S4_QUAT_Y",
-    "S4_QUAT_Z"
+    "S4_ACC_X_R",
+    "S4_ACC_Y_R",
+    "S4_ACC_Z_R",
+    "S4_GYRO_X_R",
+    "S4_GYRO_Y_R",
+    "S4_GYRO_Z_R",
+    "S4_QUAT_W_R",
+    "S4_QUAT_X_R",
+    "S4_QUAT_Y_R",
+    "S4_QUAT_Z_R"
 ]
-
 
 # ============================================================
 # CONNECT TO XSENS
@@ -109,8 +90,8 @@ wireless_master_callback = WirelessMasterCallback()
 mtw_manipulator = MtwManipulator(
     control,
     wireless_master_callback,
-    UPDATE_RATE,
-    RADIO_CHANNEL,
+    update_rate,
+    radio_channel,
     mtws
 )
 
@@ -174,10 +155,10 @@ mtw_manipulator.startRecording()
 # ============================================================
 
 # Make sure an old CSV is not open in Excel
-if os.path.exists(OUTPUT_FILE):
+if os.path.exists(output_file):
 
     print(
-        f"\nWARNING: {OUTPUT_FILE} already exists."
+        f"\nWARNING: {output_file} already exists."
     )
 
     print(
@@ -188,7 +169,7 @@ if os.path.exists(OUTPUT_FILE):
 try:
 
     csv_file = open(
-        OUTPUT_FILE,
+        output_file,
         "w",
         newline=""
     )
@@ -196,7 +177,7 @@ try:
 except PermissionError:
 
     print(
-        f"\nERROR: Cannot open {OUTPUT_FILE}."
+        f"\nERROR: Cannot open {output_file}."
     )
 
     print(
@@ -208,7 +189,7 @@ except PermissionError:
 
 writer = csv.writer(csv_file)
 
-writer.writerow(columns)
+writer.writerow(DATASET_COLS)
 
 
 # ============================================================
@@ -462,7 +443,7 @@ try:
             # DISPLAY PROGRESS
             # =================================================
 
-            if sample_count % UPDATE_RATE == 0:
+            if sample_count % update_rate == 0:
 
                 elapsed = (
                     time.perf_counter() - start_time
@@ -524,7 +505,7 @@ finally:
     )
 
     print(
-        f"Dataset saved to: {OUTPUT_FILE}"
+        f"Dataset saved to: {output_file}"
     )
 
     if sample_count > 0:

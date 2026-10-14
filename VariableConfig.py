@@ -1,7 +1,8 @@
 import numpy as np
 
 # Settings
-H5_FILENAME = "All_subjects_data.h5"
+INPUT_FILENAME = "imu_dataset.csv"
+CSV_FILENAME = "xsens_dataset_with_positions.csv"
 MODEL_FILENAME = "human_joint_angle_predictor_3d.pkl"
 MODEL_INFO_FILENAME = "human_joint_angle_predictor_info_3d.pkl"
 DATASET_PATH = "subject_1/AS/F"
@@ -12,41 +13,48 @@ PREDICTION_HORIZON = (SAMPLE_SHIFT * SAMPLE_TIME)
 # Random Forest input features
 IMU_FEATURES = [
     # Wrist - S2
-    "ACCX2",
-    "ACCY2",
-    "ACCZ2",
-    "GYROX2",
-    "GYROY2",
-    "GYROZ2",
+    "S2_ACC_X_R",
+    "S2_ACC_Y_R",
+    "S2_ACC_Z_R",
+    "S2_GYRO_X_R",
+    "S2_GYRO_Y_R",
+    "S2_GYRO_Z_R",
 
     # Forearm - S3
-    "ACCX3",
-    "ACCY3",
-    "ACCZ3",
-    "GYROX3",
-    "GYROY3",
-    "GYROZ3",
+    "S3_ACC_X_R",
+    "S3_ACC_Y_R",
+    "S3_ACC_Z_R",
+    "S3_GYRO_X_R",
+    "S3_GYRO_Y_R",
+    "S3_GYRO_Z_R",
 
     # Biceps - S4
-    "ACCX4",
-    "ACCY4",
-    "ACCZ4",
-    "GYROX4",
-    "GYROY4",
-    "GYROZ4"
+    "S4_ACC_X_R",
+    "S4_ACC_Y_R",
+    "S4_ACC_Z_R",
+    "S4_GYRO_X_R",
+    "S4_GYRO_Y_R",
+    "S4_GYRO_Z_R"
 ]
 
 # Random Forest outputs
 TARGET_FEATURES = [
-    "arm_flex_r",
-    "arm_add_r",
-    "arm_rot_r",
-    "elbow_flex_r",
-    "pro_sup_r",
-    "wrist_flex_r",
-    "wrist_dev_r"
+    "elbow_x_r",
+    "elbow_y_r",
+    "elbow_z_r",
+    "wrist_x_r",
+    "wrist_y_r",
+    "wrist_z_r",
+    "hand_x_r",
+    "hand_y_r",
+    "hand_z_r"
 ]
 
+QUAT_COLUMNS = {
+    "SHOU": ["S4_QUAT_W_R", "S4_QUAT_X_R","S4_QUAT_Y_R", "S4_QUAT_Z_R"],
+    "fARM": ["S3_QUAT_W_R", "S3_QUAT_X_R", "S3_QUAT_Y_R", "S3_QUAT_Z_R"],
+    "HAND": ["S2_QUAT_W_R", "S2_QUAT_X_R", "S2_QUAT_Y_R", "S2_QUAT_Z_R"],
+}
 
 # Human arm dimensions (m)
 UPPER_ARM_LENGTH = 0.30
@@ -67,3 +75,7 @@ JOINT_MIN = np.deg2rad([-360.0, -360.0, -360.0, -360.0, -360.0, -360.0])
 JOINT_MAX = np.deg2rad([360.0, 360.0, 360.0, 360.0, 360.0, 360.0])
 
 MAX_JOINT_STEP = np.deg2rad(5.0)
+
+# Must match self.orientation in ArmMotion: "INV" or other
+ORIENTATION = "INV"
+
