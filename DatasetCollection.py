@@ -23,14 +23,14 @@ output_file = "imu_dataset.csv"
 
 # Actual IDs from your Xsens system
 #
-# S2 = wrist
-# S3 = forearm
-# S4 = biceps / upper arm
+# S2 = wrist R
+# S3 = forearm R
+# S4 = biceps / upper arm R
 
 mtws = {
-    "00B4F199": "S2",
-    "00B4F1B3": "S3",
-    "00B4F744": "S4"
+    "00B4F180": "S2",
+    "00B4F12E": "S3",
+    "00B4F1B1": "S4",
 }
 
 
@@ -75,6 +75,7 @@ DATASET_COLS = [
     "S4_QUAT_Y_R",
     "S4_QUAT_Z_R"
 ]
+
 
 # ============================================================
 # CONNECT TO XSENS
@@ -200,9 +201,9 @@ print("\n========================================")
 print("        IMU DATA COLLECTION")
 print("========================================")
 
-print("S2 = Wrist")
-print("S3 = Forearm")
-print("S4 = Biceps / Upper Arm")
+print("S2 = Wrist R")
+print("S3 = Forearm R")
+print("S4 = Biceps / Upper Arm R")
 
 print("\nCollecting:")
 
@@ -428,14 +429,9 @@ try:
             ]
 
 
-            # =================================================
             # WRITE DATA
-            # =================================================
-
             writer.writerow(row)
-
             csv_file.flush()
-
             sample_count += 1
 
 
