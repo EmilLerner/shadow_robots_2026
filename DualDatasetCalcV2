@@ -1,0 +1,219 @@
+import DualVariableConfig
+import numpy as np
+import pandas as pd
+from scipy.spatial.transform import Rotation, Slerp
+from armMotionV2 import ArmMotion
+
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+raw_filename = DualVariableConfig.RAW_FILENAME
+processed_filename = DualVariableConfig.PROCESSED_FILENAME
+
+target_rate = DualVariableConfig.SAMPLE_RATE
+sample_time = DualVariableConfig.SAMPLE_TIME  # 0.0125 seconds
+
+target_features = DualVariableConfig.TARGET_FEATURES
+quat_cols = DualVariableConfig.QUAT_COLUMNS
+
+L_upper = DualVariableConfig.UPPER_ARM_LENGTH
+L_forearm = DualVariableConfig.FOREARM_LENGTH
+L_hand = DualVariableConfig.HAND_LENGTH
+
+# Must match ArmMotion orientation setting
+orientation = "INV"
+arms_dim = [L_upper, L_forearm, L_hand]
+
+# --------------------------------------------------
+# Load and validate original dataset
+# --------------------------------------------------
+df = pd.read_csv(raw_filename)
+
+if "timestamp" not in df.columns:
+    raise ValueError("Dataset must contain a 'timestamp' column.")
+
+df["timestamp"] = pd.to_numeric(
+    df["timestamp"], errors="coerce"
+)
+
+df = df.dropna(subset=["timestamp"])
+df = df.sort_values("timestamp")
+df = df.drop_duplicates(subset="timestamp", keep="first")
+df = df.reset_index(drop=True)
+
+required_quats = [
+    col
+    for sensor_cols in quat_cols.values()
+    for col in sensor_cols
+]
+
+missing = [col for col in required_quats if col not in df.columns]
+if missing:
+    raise ValueError(f"Missing quaternion columns: {missing}")
+
+if len(target_features) != 18:
+    raise ValueError(
+        f"Expected 18 target features, found {len(target_features)}."
+    )
+
+if len(df) < 2:
+    raise ValueError("At least two valid timestamped samples are required.")
+
+# --------------------------------------------------
+# Resample IMU data to a uniform 80 Hz grid
+# --------------------------------------------------
+# Use the original timestamps to create the new time grid.
+original_time = df["timestamp"].to_numpy(dtype=float)
+
+# Ensure all quaternion components are numeric.
+for col in required_quats:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+# Keep only rows where all six sensor quaternions are valid.
+valid_quats = (
+    np.isfinite(df[required_quats].to_numpy(dtype=float)).all(axis=1)
+)
+
+df = df.loc[valid_quats].reset_index(drop=True)
+original_time = df["timestamp"].to_numpy(dtype=float)
+
+if len(df) < 2:
+    raise ValueError("Not enough valid quaternion samples to interpolate.")
+
+# The grid starts at the first valid sample and ends at the last
+# valid sample. No extrapolation is performed.
+new_time = np.arange(
+    original_time[0],
+    original_time[-1],
+    sample_time
+)
+
+if len(new_time) < 2:
+    raise ValueError("Recording is too short to resample.")
+
+# Remove quaternion columns temporarily; they will be interpolated
+# separately using SLERP.
+non_quat_cols = [
+    col for col in df.columns
+    if col not in required_quats
+]
+
+resampled = pd.DataFrame({"timestamp": new_time})
+
+# Linear interpolation for non-quaternion numeric columns.
+# This includes accelerometer and gyroscope measurements.
+for col in non_quat_cols:
+    if col == "timestamp":
+        continue
+
+    values = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(values)
+
+    if finite.sum() >= 2:
+        resampled[col] = np.interp(
+            new_time,
+            original_time[finite],
+            values[finite]
+        )
+    elif finite.sum() == 1:
+        # One value cannot define a varying signal. Keep it constant.
+        resampled[col] = values[finite][0]
+    else:
+        resampled[col] = np.nan
+
+# --------------------------------------------------
+# SLERP interpolation for each sensor quaternion
+# --------------------------------------------------
+for sensor, columns in quat_cols.items():
+
+    # Assumes each entry in QUAT_COLUMNS is ordered W, X, Y, Z.
+    w_col, x_col, y_col, z_col = columns
+
+    # scipy Rotation.from_quat expects X, Y, Z, W.
+    quat_wxyz = df[columns].to_numpy(dtype=float)
+    quat_xyzw = quat_wxyz[:, [1, 2, 3, 0]]
+
+    # Normalize source quaternions.
+    norms = np.linalg.norm(quat_xyzw, axis=1)
+    valid_norms = norms > 1e-12
+
+    if not np.all(valid_norms):
+        raise ValueError(
+            f"Zero-length quaternion found for sensor {sensor}."
+        )
+
+    quat_xyzw /= norms[:, None]
+
+    # Construct rotations and interpolate with SLERP.
+    rotations = Rotation.from_quat(quat_xyzw)
+    slerp = Slerp(original_time, rotations)
+    interpolated_rotations = slerp(new_time)
+
+    # Convert back to W, X, Y, Z to match the original CSV.
+    interpolated_xyzw = interpolated_rotations.as_quat()
+    interpolated_wxyz = interpolated_xyzw[:, [3, 0, 1, 2]]
+
+    resampled[w_col] = interpolated_wxyz[:, 0]
+    resampled[x_col] = interpolated_wxyz[:, 1]
+    resampled[y_col] = interpolated_wxyz[:, 2]
+    resampled[z_col] = interpolated_wxyz[:, 3]
+
+# --------------------------------------------------
+# Calculate elbow, wrist and hand positions
+# --------------------------------------------------
+arm = ArmMotion(arms_dim, orientation, devices={})
+
+positions = []
+
+for _, row in resampled.iterrows():
+
+    quat_data = {
+        sensor: tuple(row[col] for col in columns)
+        for sensor, columns in quat_cols.items()
+    }
+
+    # Right arm: S1 shoulder, S2 forearm, S3 hand
+    right_quat_data = {
+        "SHOU": quat_data["RSHOU"],
+        "fARM": quat_data["RfARM"],
+        "HAND": quat_data["RHAND"]
+    }
+
+    # Left arm: S4 shoulder, S5 forearm, S6 hand
+    left_quat_data = {
+        "SHOU": quat_data["LSHOU"],
+        "fARM": quat_data["LfARM"],
+        "HAND": quat_data["LHAND"]
+    }
+
+    right_positions = arm.calculate_human_positions(
+        right_quat_data
+    )
+
+    left_positions = arm.calculate_human_positions(
+        left_quat_data
+    )
+
+    combined_positions = np.concatenate([
+        right_positions,
+        left_positions
+    ])
+
+    positions.append(combined_positions)
+
+# Assign all 18 position targets
+resampled[target_features] = np.vstack(positions)
+
+# --------------------------------------------------
+# Save processed dataset
+# --------------------------------------------------
+resampled.to_csv(processed_filename, index=False)
+
+intervals = np.diff(new_time)
+
+print(f"Processed dataset saved to: {processed_filename}")
+print(f"Number of rows: {len(resampled)}")
+print(f"Target sampling rate: {target_rate} Hz")
+print(f"Mean time interval: {intervals.mean():.6f} s")
+print("SLERP applied to all six sensor quaternion streams.")
+print("Positions calculated after resampling.")

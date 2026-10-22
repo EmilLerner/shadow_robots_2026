@@ -1,14 +1,22 @@
 import numpy as np
 
 # Settings
-INPUT_FILENAME = "imu_dataset.csv"
-CSV_FILENAME = "xsens_dataset_with_positions.csv"
-MODEL_FILENAME = "human_joint_angle_predictor_3d.pkl"
-MODEL_INFO_FILENAME = "human_joint_angle_predictor_info_3d.pkl"
+RAW_FILENAME = "dual_imu_dataset.csv"
+RESAMPLED_FILENAME = "dual_imu_dataset80Hz.csv"
+PROCESSED_FILENAME = "dual_xsens_dataset_with_positions.csv"
+MODEL_FILENAME = "dual_human_joint_coordinates_predictor_3d.pkl"
+MODEL_INFO_FILENAME = "dual_human_joint_coordinates_predictor_info_3d.pkl"
 DATASET_PATH = "subject_1/AS/F"
+SAMPLE_RATE = 80 # Hz
+RADIO_CHANNEL = 19
 SAMPLE_SHIFT = 5
-SAMPLE_TIME = 0.01
+SAMPLE_TIME = 1.0/SAMPLE_RATE
 PREDICTION_HORIZON = (SAMPLE_SHIFT * SAMPLE_TIME)
+MAX_TIME_SKEW = 0.5/SAMPLE_RATE # Maximum allowed difference between sensor packet arrival times.
+
+# The intended IMU features are ACC xyz + GYRO xyz for each sensor.
+EXPECTED_INPUT_COUNT = 36
+EXPECTED_OUTPUT_COUNT = 18
 
 # Random Forest input features
 IMU_FEATURES = [
@@ -37,12 +45,12 @@ IMU_FEATURES = [
     "S3_GYRO_Z_R",
 
     # left shoulder - S4
-    "S4_ACC_X_R",
-    "S4_ACC_Y_R",
-    "S4_ACC_Z_R",
-    "S4_GYRO_X_R",
-    "S4_GYRO_Y_R",
-    "S4_GYRO_Z_R",
+    "S4_ACC_X_L",
+    "S4_ACC_Y_L",
+    "S4_ACC_Z_L",
+    "S4_GYRO_X_L",
+    "S4_GYRO_Y_L",
+    "S4_GYRO_Z_L",
 
     # left forearm - S5
     "S5_ACC_X_L",

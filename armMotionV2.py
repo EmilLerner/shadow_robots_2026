@@ -241,6 +241,7 @@ class ArmMotion():
             Kd.append(Kd_base[i] + (Kd_max[i] - Kd_base[i]) * ratio)
         return Kp, Ki, Kd
 
+
     def calculate_human_positions(self, quat_data):
         # Shoulder orientation
         shou_qW, shou_qX, shou_qY, shou_qZ = quat_data["SHOU"]
@@ -264,24 +265,34 @@ class ArmMotion():
         elbow_pos = self.shoulder_pos + shoulder_q.apply(
             self.local_upper
         )
+
         wrist_pos = elbow_pos + elbow_q.apply(
             self.local_forearm
         )
+
         hand_pos = wrist_pos + wrist_q.apply(
             self.local_hand
         )
 
+        # Apply hand height offset
         hand_pos[2] += 0.1
 
+        # Apply the same coordinate transformation to all positions
         if self.orientation == "INV":
             R_flip = np.diag([-1.0, -1.0, 1.0])
+
+            elbow_pos = R_flip @ elbow_pos
+            wrist_pos = R_flip @ wrist_pos
             hand_pos = R_flip @ hand_pos
 
+        # Return 9 values:
+        # elbow XYZ, wrist XYZ, hand XYZ
         return np.concatenate([
             elbow_pos,
             wrist_pos,
             hand_pos
         ])
+
 
     
     

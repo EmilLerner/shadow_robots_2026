@@ -23,14 +23,14 @@ output_file = "imu_dataset.csv"
 
 # Actual IDs from your Xsens system
 #
-# S2 = wrist R
-# S3 = forearm R
-# S4 = biceps / upper arm R
+# S1 = right shoulder
+# S3 = rigth forearm
+# S4 = right hand
 
 mtws = {
-    "00B4F180": "S2",
-    "00B4F12E": "S3",
-    "00B4F1B1": "S4",
+    "00B4F180": "S1",
+    "00B4F12E": "S2",
+    "00B4F1B1": "S3",
 }
 
 
@@ -38,6 +38,18 @@ mtws = {
 DATASET_COLS = [
 
     "timestamp",
+
+    # S4
+    "S1_ACC_X_R",
+    "S1_ACC_Y_R",
+    "S1_ACC_Z_R",
+    "S1_GYRO_X_R",
+    "S1_GYRO_Y_R",
+    "S1_GYRO_Z_R",
+    "S1_QUAT_W_R",
+    "S1_QUAT_X_R",
+    "S1_QUAT_Y_R",
+    "S1_QUAT_Z_R"
 
     # S2
     "S2_ACC_X_R",
@@ -62,18 +74,6 @@ DATASET_COLS = [
     "S3_QUAT_X_R",
     "S3_QUAT_Y_R",
     "S3_QUAT_Z_R",
-
-    # S4
-    "S4_ACC_X_R",
-    "S4_ACC_Y_R",
-    "S4_ACC_Z_R",
-    "S4_GYRO_X_R",
-    "S4_GYRO_Y_R",
-    "S4_GYRO_Z_R",
-    "S4_QUAT_W_R",
-    "S4_QUAT_X_R",
-    "S4_QUAT_Y_R",
-    "S4_QUAT_Z_R"
 ]
 
 
@@ -82,9 +82,7 @@ DATASET_COLS = [
 # ============================================================
 
 print("\nConnecting to Xsens...")
-
 control = xda.XsControl.construct()
-
 wireless_master_callback = WirelessMasterCallback()
 
 
@@ -102,7 +100,6 @@ mtw_manipulator = MtwManipulator(
 # ============================================================
 
 print("\nScanning for Xsens devices...")
-
 mtw_manipulator.scanXsDevices()
 
 
@@ -111,7 +108,6 @@ mtw_manipulator.scanXsDevices()
 # ============================================================
 
 print("\nStarting configuration mode...")
-
 mtw_manipulator.startConfigMode()
 
 
@@ -120,7 +116,6 @@ mtw_manipulator.startConfigMode()
 # ============================================================
 
 print("\nWaiting for sensor connections...")
-
 mtw_manipulator.waitForConnections()
 
 
@@ -129,7 +124,6 @@ mtw_manipulator.waitForConnections()
 # ============================================================
 
 print("\nStarting measurement...")
-
 mtw_manipulator.startMeasurement()
 
 
@@ -138,7 +132,6 @@ mtw_manipulator.startMeasurement()
 # ============================================================
 
 print("\nResetting orientation data...")
-
 mtw_manipulator.resetOrientationData()
 
 
@@ -147,7 +140,6 @@ mtw_manipulator.resetOrientationData()
 # ============================================================
 
 print("\nStarting recording...")
-
 mtw_manipulator.startRecording()
 
 
@@ -196,33 +188,24 @@ writer.writerow(DATASET_COLS)
 # ============================================================
 # START DATA COLLECTION
 # ============================================================
-
 print("\n========================================")
 print("        IMU DATA COLLECTION")
 print("========================================")
-
-print("S2 = Wrist R")
-print("S3 = Forearm R")
-print("S4 = Biceps / Upper Arm R")
-
+print("S1 = right shoulder")
+print("S2 = right forearm")
+print("S3 = right hand")
 print("\nCollecting:")
-
 print("  - Accelerometer")
 print("  - Gyroscope")
 print("  - Quaternion")
-
 print("\nMove your arm naturally.")
-
 print("Press Ctrl+C to stop recording.\n")
 
-
 start_time = time.perf_counter()
-
 sample_count = 0
 
 
 try:
-
     while True:
 
         # ====================================================
@@ -238,9 +221,9 @@ try:
 
         sensor_data = {
 
+            "S1": None,
             "S2": None,
-            "S3": None,
-            "S4": None
+            "S3": None
         }
 
 
@@ -352,11 +335,11 @@ try:
 
         if (
 
+            sensor_data["S1"] is not None
+            and
             sensor_data["S2"] is not None
             and
             sensor_data["S3"] is not None
-            and
-            sensor_data["S4"] is not None
 
         ):
 
@@ -378,6 +361,24 @@ try:
                 # S2
                 # -------------------------
 
+                sensor_data["S1"][0],
+                sensor_data["S1"][1],
+                sensor_data["S1"][2],
+
+                sensor_data["S1"][3],
+                sensor_data["S1"][4],
+                sensor_data["S1"][5],
+
+                sensor_data["S1"][6],
+                sensor_data["S1"][7],
+                sensor_data["S1"][8],
+                sensor_data["S1"][9],
+
+
+                # -------------------------
+                # S3
+                # -------------------------
+
                 sensor_data["S2"][0],
                 sensor_data["S2"][1],
                 sensor_data["S2"][2],
@@ -393,7 +394,7 @@ try:
 
 
                 # -------------------------
-                # S3
+                # S4
                 # -------------------------
 
                 sensor_data["S3"][0],
@@ -407,25 +408,7 @@ try:
                 sensor_data["S3"][6],
                 sensor_data["S3"][7],
                 sensor_data["S3"][8],
-                sensor_data["S3"][9],
-
-
-                # -------------------------
-                # S4
-                # -------------------------
-
-                sensor_data["S4"][0],
-                sensor_data["S4"][1],
-                sensor_data["S4"][2],
-
-                sensor_data["S4"][3],
-                sensor_data["S4"][4],
-                sensor_data["S4"][5],
-
-                sensor_data["S4"][6],
-                sensor_data["S4"][7],
-                sensor_data["S4"][8],
-                sensor_data["S4"][9]
+                sensor_data["S3"][9]
             ]
 
 

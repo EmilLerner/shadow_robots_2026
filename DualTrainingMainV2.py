@@ -1,40 +1,40 @@
 import numpy as np
 import pandas as pd
 import joblib
-import VariableConfig
-from TrainingV2 import load_csv_dataset
+import DualVariableConfig
+from DualTrainingV2 import load_csv_dataset
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
 # Load training parameters
-prediction_horizon = VariableConfig.PREDICTION_HORIZON
-imu_features = VariableConfig.IMU_FEATURES
-target_features = VariableConfig.TARGET_FEATURES
-csv_filename = VariableConfig.CSV_FILENAME
-sample_time = VariableConfig.SAMPLE_TIME
-sample_shift = VariableConfig.SAMPLE_SHIFT
-model_filename = VariableConfig.MODEL_FILENAME
-model_info_filename = VariableConfig.MODEL_INFO_FILENAME
+prediction_horizon = DualVariableConfig.PREDICTION_HORIZON
+imu_features = DualVariableConfig.IMU_FEATURES
+target_features = DualVariableConfig.TARGET_FEATURES
+processed_filename = DualVariableConfig.PROCESSED_FILENAME
+sample_time = DualVariableConfig.SAMPLE_TIME
+sample_shift = DualVariableConfig.SAMPLE_SHIFT
+model_filename = DualVariableConfig.MODEL_FILENAME
+model_info_filename = DualVariableConfig.MODEL_INFO_FILENAME
 
 
 # Program information
 print("=" * 60)
 print("3D RANDOM FOREST JOINT ANGLE TRAINING")
 print("=" * 60)
-print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.0f} ms")
+print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.1f} ms")
 print("\nInput features:")
 
 for feature in imu_features: 
     print(" ", feature)
 
-print("\nTarget joint angles:")
+print("\nOutput features:")
 
 for target in target_features: 
     print(" ", target)
 
 # Load all data
-dataset = load_csv_dataset(csv_filename)
+dataset = load_csv_dataset(processed_filename)
 
 print(f"Loaded rows: {len(dataset)}")
 
@@ -67,13 +67,12 @@ print(len(X_test))
 print("\nCreating Random Forest...")
 
 model = RandomForestRegressor(
-    n_estimators=120, 
-    max_depth=30, 
-    min_samples_leaf=2, 
-    random_state=42, 
+    n_estimators=1000,
+    max_depth=70,
+    min_samples_leaf=2,
+    random_state=42,
     n_jobs=-1
 )
-
 
 # Train Random Forest
 print("\nTraining Random Forest...")
@@ -86,7 +85,7 @@ predictions = model.predict(X_test)
 
 # overall RMSE
 overall_mse = mean_squared_error(y_test, predictions)
-overall_rmse = np.sqrt(overall_mse)
+overall_rmse = np.sqrt(overall_mse)*100
 
 
 # Individual RMSE
@@ -95,13 +94,13 @@ print("\n")
 print("=" * 60)
 print("MODEL PERFORMANCE")
 print("=" * 60)
-print(f"\nOverall RMSE: "f"{overall_rmse:.4f} degrees")
+print(f"\nOverall RMSE: "f"{overall_rmse:.4g} cm")
 print("\nRMSE for individual joint angles:")
 
 for i, target in enumerate(target_features):
     target_mse = mean_squared_error(y_test.iloc[:, i], predictions[:, i])
-    target_rmse = np.sqrt(target_mse)
-    print(f"{target:<20} "f"{target_rmse:.4f} degrees")
+    target_rmse = np.sqrt(target_mse)*100
+    print(f"{target:<20} "f"{target_rmse:.4g} cm")
 
 
 # Save trained model
@@ -139,7 +138,7 @@ print("\nOutputs:")
 for target in target_features:
     print(f"  {target}")
 
-print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.0f} ms")
+print(f"\nPrediction horizon: "f"{prediction_horizon * 1000:.1f} ms")
 print(f"Training examples: "f"{len(X_train)}")
 print(f"Testing examples: "f"{len(X_test)}")
 print(f"\nModel file:"f" {model_filename}")

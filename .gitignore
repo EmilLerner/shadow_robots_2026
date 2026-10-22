@@ -3,3 +3,7 @@ __pycache__/
 All_subjects_data.h5
 human_joint_angle_predictor_3d.pkl
 human_joint_angle_predictor_info_3d.pkl
+dual_human_joint_angle_predictor_3d.pkl
+dual_human_joint_angle_predictor_info_3d.pkl
+dual_human_joint_coordinates_predictor_3d.pkl
+dual_human_joint_coordinates_predictor_info_3d.pkl

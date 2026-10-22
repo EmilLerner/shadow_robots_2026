@@ -12,7 +12,15 @@ PREDICTION_HORIZON = (SAMPLE_SHIFT * SAMPLE_TIME)
 
 # Random Forest input features
 IMU_FEATURES = [
-    # Wrist - S2
+    # Hand - S1
+    "S1_ACC_X_R",
+    "S1_ACC_Y_R",
+    "S1_ACC_Z_R",
+    "S1_GYRO_X_R",
+    "S1_GYRO_Y_R",
+    "S1_GYRO_Z_R",
+
+    # Forearm - S2
     "S2_ACC_X_R",
     "S2_ACC_Y_R",
     "S2_ACC_Z_R",
@@ -20,21 +28,13 @@ IMU_FEATURES = [
     "S2_GYRO_Y_R",
     "S2_GYRO_Z_R",
 
-    # Forearm - S3
+    # Shoulder - S3
     "S3_ACC_X_R",
     "S3_ACC_Y_R",
     "S3_ACC_Z_R",
     "S3_GYRO_X_R",
     "S3_GYRO_Y_R",
-    "S3_GYRO_Z_R",
-
-    # Biceps - S4
-    "S4_ACC_X_R",
-    "S4_ACC_Y_R",
-    "S4_ACC_Z_R",
-    "S4_GYRO_X_R",
-    "S4_GYRO_Y_R",
-    "S4_GYRO_Z_R"
+    "S3_GYRO_Z_R"
 ]
 
 # Random Forest outputs
@@ -51,9 +51,9 @@ TARGET_FEATURES = [
 ]
 
 QUAT_COLUMNS = {
-    "SHOU": ["S4_QUAT_W_R", "S4_QUAT_X_R","S4_QUAT_Y_R", "S4_QUAT_Z_R"],
-    "fARM": ["S3_QUAT_W_R", "S3_QUAT_X_R", "S3_QUAT_Y_R", "S3_QUAT_Z_R"],
-    "HAND": ["S2_QUAT_W_R", "S2_QUAT_X_R", "S2_QUAT_Y_R", "S2_QUAT_Z_R"],
+    "SHOU": ["S1_QUAT_W_R", "S1_QUAT_X_R","S1_QUAT_Y_R", "S1_QUAT_Z_R"],
+    "fARM": ["S2_QUAT_W_R", "S2_QUAT_X_R", "S2_QUAT_Y_R", "S2_QUAT_Z_R"],
+    "HAND": ["S3_QUAT_W_R", "S3_QUAT_X_R", "S3_QUAT_Y_R", "S3_QUAT_Z_R"],
 }
 
 # Human arm dimensions (m)

@@ -8,28 +8,38 @@ from mtwManipulator import MtwManipulator
 # setting
 update_rate = 80
 radio_channel = 19
-output_file = "imu_dataset.csv"
+output_file = "dual_imu_dataset.csv"
+
+# Allow up to half a nominal sample interval between sensor
+# packet-arrival timestamps when aligning six sensor streams.
+max_time_skew = 0.5 / update_rate
+
+# Flush CSV data every N saved rows.
+flush_rate = update_rate
+
+# Prevent excessive memory use if one sensor stops delivering data.
+max_buffer_size = update_rate * 5
 
 # sensor maping
-# S1 = right hand 
+# S1 = right shoulder 
 # S2 = right forearm 
-# S3 = right shoulder 
-# S4 = left hand
+# S3 = right hand
+# S4 = left shoulder
 # S5 = left forearm 
-# S6 = left shoulder
+# S6 = left hand
 
 mtws = {
-    "00B4F199": "S1",
-    "00B4F1B3": "S2",
-    "00B4F744": "S3",
+    "00B4F1B1": "S1",
+    "00B4F1AE": "S2",
+    "00B4F12E": "S3",
     
-    "00B4F199": "S4",
+    "00B4F12F": "S4",
     "00B4F1B3": "S5",
-    "00B4F744": "S6" 
+    "00B4F130": "S6" 
 }
 
 # Final dataset columns
-DATASET_COLS = [
+dataset_cols = [
     "timestamp",
 
     # S1
@@ -69,16 +79,16 @@ DATASET_COLS = [
     "S3_QUAT_Z_R",
 
     # S4
-    "S4_ACC_X_R",
-    "S4_ACC_Y_R",
-    "S4_ACC_Z_R",
-    "S4_GYRO_X_R",
-    "S4_GYRO_Y_R",
-    "S4_GYRO_Z_R",
-    "S4_QUAT_W_R",
-    "S4_QUAT_X_R",
-    "S4_QUAT_Y_R",
-    "S4_QUAT_Z_R",
+    "S4_ACC_X_L",
+    "S4_ACC_Y_L",
+    "S4_ACC_Z_L",
+    "S4_GYRO_X_L",
+    "S4_GYRO_Y_L",
+    "S4_GYRO_Z_L",
+    "S4_QUAT_W_L",
+    "S4_QUAT_X_L",
+    "S4_QUAT_Y_L",
+    "S4_QUAT_Z_L",
 
     # S5
     "S5_ACC_X_L",
@@ -186,7 +196,7 @@ except PermissionError:
     raise
 
 writer = csv.writer(csv_file)
-writer.writerow(DATASET_COLS)
+writer.writerow(dataset_cols)
 
 
 # start data collection
@@ -207,234 +217,171 @@ print("  - Quaternion")
 print("\nMove your arm naturally.")
 print("Press Ctrl+C to stop recording.\n")
 
+
 start_time = time.perf_counter()
 sample_count = 0
 
+sensor_names = ("S1", "S2", "S3", "S4", "S5", "S6")
+
+packet_counts = {sensor: 0 for sensor in sensor_names}
+
+# Keep the latest data across loop iterations.
+sensor_data = {sensor: None for sensor in sensor_names}
+
+# Track which sensors have supplied a new packet since
+# the last saved row.
+updated_since_save = {sensor: False for sensor in sensor_names}
+
+last_report_time = start_time
+last_report_count = 0
 
 try:
     while True:
-
-        # ====================================================
-        # GET CALLBACKS
-        # ====================================================
-
         callbacks = mtw_manipulator.getMtwCallbacks()
 
-
-        # ====================================================
-        # TEMPORARY SENSOR DATA
-        # ====================================================
-
-        sensor_data = {
-            "S1": None,
-            "S2": None,
-            "S3": None,
-            "S4": None,
-            "S5": None,
-            "S6": None
-        }
-
-
-        # ====================================================
-        # READ ONE PACKET FROM EACH SENSOR
-        # ====================================================
-
+        # Read packets from all available sensor callbacks.
         for callback in callbacks:
-            if not callback.dataAvailable():
-                continue
-
-            # Get packet
-            packet = callback.getOldestPacket()
-
-            # Get sensor ID
             sensor_id = str(callback.device().deviceId())
-
-            # Convert sensor ID to body part
             bodypart = mtws.get(sensor_id)
 
-            if bodypart is None:
-                callback.deleteOldestPacket()
-                continue
+            while callback.dataAvailable():
+                packet = callback.getOldestPacket()
 
-            # accelerometer
-            acceleration = packet.calibratedAcceleration()
-            acc_x = float(acceleration[0])
-            acc_y = float(acceleration[1])
-            acc_z = float(acceleration[2])
+                try:
+                    if bodypart is None:
+                        continue
 
-            # gyroscope
-            gyroscope = packet.calibratedGyroscopeData()
-            gyro_x = float(gyroscope[0])
-            gyro_y = float(gyroscope[1])
-            gyro_z = float(gyroscope[2])
+                    acceleration = packet.calibratedAcceleration()
+                    gyroscope = packet.calibratedGyroscopeData()
+                    quaternion = packet.orientationQuaternion()
 
-            # quaterion
-            quaternion = packet.orientationQuaternion()
-            quat_w = float(quaternion[0])
-            quat_x = float(quaternion[1])
-            quat_y = float(quaternion[2])
-            quat_z = float(quaternion[3])
+                    values = [
+                        float(acceleration[0]),
+                        float(acceleration[1]),
+                        float(acceleration[2]),
+                        float(gyroscope[0]),
+                        float(gyroscope[1]),
+                        float(gyroscope[2]),
+                        float(quaternion[0]),
+                        float(quaternion[1]),
+                        float(quaternion[2]),
+                        float(quaternion[3]),
+                    ]
 
-            # store data
-            sensor_data[bodypart] = [
-                acc_x,
-                acc_y,
-                acc_z,
-                gyro_x,
-                gyro_y,
-                gyro_z,
-                quat_w,
-                quat_x,
-                quat_y,
-                quat_z
-            ]
+                    sensor_data[bodypart] = values
+                    updated_since_save[bodypart] = True
+                    packet_counts[bodypart] += 1
 
-            # Remove packet from callback queue
-            callback.deleteOldestPacket()
+                finally:
+                    callback.deleteOldestPacket()
 
+        # Save only after every sensor has supplied new data.
+        all_ready = all(
+            sensor_data[sensor] is not None
+            for sensor in sensor_names
+        )
 
-        # Only save when all sensors have data
-        if all(
-            sensor_data[sensor] is not None 
-            for sensor in ("S1", "S2", "S3", "S4", "S5", "S6")
-        ):
-            timestamp = (time.perf_counter() - start_time)
+        all_updated = all(
+            updated_since_save[sensor]
+            for sensor in sensor_names
+        )
 
+        if all_ready and all_updated:
+            timestamp = time.perf_counter() - start_time
 
-            # =================================================
-            # CREATE CSV ROW
-            # =================================================
+            row = [timestamp]
 
-            row = [
-                timestamp,
+            # Preserve the existing CSV column order.
+            for sensor in sensor_names:
+                row.extend(sensor_data[sensor])
 
-                # S1
-                sensor_data["S1"][0],
-                sensor_data["S1"][1],
-                sensor_data["S1"][2],
-                sensor_data["S1"][3],
-                sensor_data["S1"][4],
-                sensor_data["S1"][5],
-                sensor_data["S1"][6],
-                sensor_data["S1"][7],
-                sensor_data["S1"][8],
-                sensor_data["S1"][9],
-
-                # S2
-                sensor_data["S2"][0],
-                sensor_data["S2"][1],
-                sensor_data["S2"][2],
-                sensor_data["S2"][3],
-                sensor_data["S2"][4],
-                sensor_data["S2"][5],
-                sensor_data["S2"][6],
-                sensor_data["S2"][7],
-                sensor_data["S2"][8],
-                sensor_data["S2"][9],
-
-                # S3
-                sensor_data["S3"][0],
-                sensor_data["S3"][1],
-                sensor_data["S3"][2],
-                sensor_data["S3"][3],
-                sensor_data["S3"][4],
-                sensor_data["S3"][5],
-                sensor_data["S3"][6],
-                sensor_data["S3"][7],
-                sensor_data["S3"][8],
-                sensor_data["S3"][9],
-
-                # S4
-                sensor_data["S4"][0],
-                sensor_data["S4"][1],
-                sensor_data["S4"][2],
-                sensor_data["S4"][3],
-                sensor_data["S4"][4],
-                sensor_data["S4"][5],
-                sensor_data["S4"][6],
-                sensor_data["S4"][7],
-                sensor_data["S4"][8],
-                sensor_data["S4"][9],
-
-                # S5
-                sensor_data["S5"][0],
-                sensor_data["S5"][1],
-                sensor_data["S5"][2],
-                sensor_data["S5"][3],
-                sensor_data["S5"][4],
-                sensor_data["S5"][5],
-                sensor_data["S5"][6],
-                sensor_data["S5"][7],
-                sensor_data["S5"][8],
-                sensor_data["S5"][9],
-
-                # S6
-                sensor_data["S6"][0],
-                sensor_data["S6"][1],
-                sensor_data["S6"][2],
-                sensor_data["S6"][3],
-                sensor_data["S6"][4],
-                sensor_data["S6"][5],
-                sensor_data["S6"][6],
-                sensor_data["S6"][7],
-                sensor_data["S6"][8],
-                sensor_data["S6"][9]
-            ]
-
-
-            # =================================================
-            # WRITE DATA
-            # =================================================
             writer.writerow(row)
-            csv_file.flush()
             sample_count += 1
 
+            # Each sensor must contribute another packet
+            # before the next row can be saved.
+            updated_since_save = {
+                sensor: False for sensor in sensor_names
+            }
 
-            # =================================================
-            # DISPLAY PROGRESS
-            # =================================================
+            # Flush once per nominal second of saved rows.
+            if sample_count % flush_rate == 0:
+                csv_file.flush()
 
-            if sample_count % update_rate == 0:
-                elapsed = (time.perf_counter() - start_time)
+        # Report progress every two seconds, even if no
+        # complete sample has been saved.
+        now = time.perf_counter()
 
-                actual_rate = (sample_count / elapsed)
+        if now - last_report_time >= 2.0:
+            elapsed = now - start_time
+            interval = now - last_report_time
 
-                print(
-                    f"Samples: {sample_count:6d} | "
-                    f"Time: {elapsed:6.1f} s | "
-                    f"Rate: {actual_rate:6.1f} Hz"
-                )
+            new_samples = sample_count - last_report_count
 
-        # Small delay
+            recent_rate = (
+                new_samples / interval if interval > 0 else 0.0
+            )
+
+            average_rate = (
+                sample_count / elapsed if elapsed > 0 else 0.0
+            )
+
+            print(
+                f"\rSamples: {sample_count:7d} | "
+                f"Time: {elapsed:7.1f} s | "
+                f"Average: {average_rate:6.2f} Hz | "
+                f"Recent: {recent_rate:6.2f} Hz",
+                flush=True
+            )
+
+            print(
+                "Packets: "
+                + " | ".join(
+                    f"{sensor}: {packet_counts[sensor]}"
+                    for sensor in sensor_names
+                ),
+                flush=True
+            )
+
+            last_report_time = now
+            last_report_count = sample_count
+
+        # Avoid a busy loop when no packets are available.
         time.sleep(0.001)
-
-
-# ============================================================
-# STOP RECORDING
-# ============================================================
 
 except KeyboardInterrupt:
     print("\n\nStopping recording...")
 
 finally:
+    csv_file.flush()
     csv_file.close()
 
     try:
         mtw_manipulator.stopRecording()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Warning stopping recording: {exc}")
 
     try:
         mtw_manipulator.stopMeasurement()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Warning stopping measurement: {exc}")
+
+    elapsed = time.perf_counter() - start_time
 
     print("\n========================================")
     print("           RECORDING COMPLETE")
     print("========================================")
     print(f"Samples recorded: {sample_count}")
-    print(f"Dataset saved to: {output_file}")
+    print(f"Dataset saved to: {os.path.abspath(output_file)}")
+    print(f"Elapsed time: {elapsed:.2f} s")
 
-    if sample_count > 0:
-        elapsed = (time.perf_counter() - start_time)
-        print(f"Average sample rate: " f"{sample_count / elapsed:.2f} Hz")
+    if elapsed > 0:
+        print(
+            f"Average sample rate: "
+            f"{sample_count / elapsed:.2f} Hz"
+        )
+
+    print("\nPackets received from each sensor:")
+
+    for sensor in sensor_names:
+        print(f"{sensor}: {packet_counts[sensor]}")

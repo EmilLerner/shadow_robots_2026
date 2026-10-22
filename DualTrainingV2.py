@@ -1,20 +1,19 @@
 import pandas as pd
 import numpy as np
-import VariableConfig
+import DualVariableConfig
 
-
-# Load dataset needed for random forest model
-csv_filename = VariableConfig.CSV_FILENAME
+# Load csv dataset needed for random forest model
+processed_filename = DualVariableConfig.PROCESSED_FILENAME
 
 # Load Random Forest parameters
-imu_features = VariableConfig.IMU_FEATURES
-target_features = VariableConfig.TARGET_FEATURES
+imu_features = DualVariableConfig.IMU_FEATURES
+target_features = DualVariableConfig.TARGET_FEATURES
 
-def load_csv_dataset(csv_filename):
+def load_csv_dataset(processed_filename):
     print("\nLoading CSV dataset...")
 
     # Load the CSV
-    data = pd.read_csv(csv_filename)
+    data = pd.read_csv(processed_filename)
 
     # Select only the required RF input and output columns
     required_columns = imu_features + target_features

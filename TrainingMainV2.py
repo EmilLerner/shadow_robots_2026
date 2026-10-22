@@ -74,7 +74,6 @@ model = RandomForestRegressor(
     n_jobs=-1
 )
 
-
 # Train Random Forest
 print("\nTraining Random Forest...")
 model.fit(X_train, y_train)
@@ -84,24 +83,29 @@ print("Training complete.")
 print("\nTesting trained model...")
 predictions = model.predict(X_test)
 
-# overall RMSE
+# Overall RMSE across all 9 Cartesian coordinates
 overall_mse = mean_squared_error(y_test, predictions)
 overall_rmse = np.sqrt(overall_mse)
 
-
-# Individual RMSE
+# Convert from metres to centimetres
+overall_rmse_cm = overall_rmse * 100
 
 print("\n")
 print("=" * 60)
 print("MODEL PERFORMANCE")
 print("=" * 60)
-print(f"\nOverall RMSE: "f"{overall_rmse:.4f} degrees")
-print("\nRMSE for individual joint angles:")
+print(f"\nOverall RMSE: {overall_rmse_cm:.2f} cm")
+print("\nRMSE for individual Cartesian coordinates:")
 
 for i, target in enumerate(target_features):
-    target_mse = mean_squared_error(y_test.iloc[:, i], predictions[:, i])
+    target_mse = mean_squared_error(
+        y_test.iloc[:, i],
+        predictions[:, i]
+    )
     target_rmse = np.sqrt(target_mse)
-    print(f"{target:<20} "f"{target_rmse:.4f} degrees")
+    target_rmse_cm = target_rmse * 100
+
+    print(f"{target:<20} {target_rmse_cm:.2f} cm")
 
 
 # Save trained model
