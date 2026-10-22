@@ -6,19 +6,19 @@
 #define ratioPC  10.0f
 #define stallCurrent  200.0f
 
-#define PUMP_PIN 26
-#define VALVE_PIN  25
-#define PRESURE_PIN  32
+#define PUMP_PIN 13
+#define VALVE_PIN  14
+#define PRESURE_PIN  35
 #define joyX_PIN 34
 #include "pressureCtrl.h"
 #include "motorCTR.h"
 #include <array>
 
-float Kp = 7;
+float Kp = 5; 
 float Ki = 1;
-float hold = 5;
+float hold = 100;
 
-float baseSetPoint = 0.03;
+float baseSetPoint = 0.1;
 float setPoint = baseSetPoint;
 
 float speed;
@@ -55,7 +55,7 @@ float addSample(float x) {
 }
 
 
-pressureCtrl controler1(PRESURE_PIN, PUMP_PIN, VALVE_PIN, hold, Kp, Ki);
+pressureCtrl controler1(PRESURE_PIN, PUMP_PIN, VALVE_PIN, hold, Kp, Ki, baseSetPoint);
 motorCTR motor;
 
 void setup() {
@@ -80,12 +80,14 @@ void loop() {
   
   // read the joy stick values and the current values
   joyX_raw = analogRead(joyX_PIN);
-  joyX = constrain(((float)(joyX_raw - 1770) / 20.0f), -100, 100);
+  joyX = constrain(((float)(joyX_raw - 2080) / 20.0f), -100, 100);
+
+
   speed =  constrain(joyX, 0, 100);
 
-  inputPressure = controler1.ctrl_update(constrain(setPoint, baseSetPoint, 2));
+  inputPressure = controler1.ctrl_update(constrain(setPoint, baseSetPoint, 2), motor.gripDetected());
 
-  if (speed < 10) speed = constrain(inputPressure * 200 - 10, 0, 100);
+  if (speed < 10) speed = constrain(inputPressure * 150 - 10, 0, 100);
 
   if ((inputPressure > 2*baseSetPoint) || (joyX > 30)) {
     motor.closeGrip(speed);
@@ -94,13 +96,10 @@ void loop() {
   }
 
   setPoint = inputPressure;
-  if (motor.gripDetected()) setPoint  = setPoint *2;
-
 
   Serial.print(setPoint);
   Serial.print(",");
-  // Serial.print(setpoint);
-  // Serial.print(",");
+
   
   controler1.ctrl_plot();
 

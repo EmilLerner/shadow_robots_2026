@@ -23,6 +23,7 @@ private:
     float Kp;
     float Ki;
 
+    float minPressure;
     float pressure;
     float error;
     float integral;
@@ -33,7 +34,7 @@ private:
 
 
 public:
-    pressureCtrl(int pressurePin, int pumpPin, int valvePin, int hold, float Kp, float Ki);
+    pressureCtrl(int pressurePin, int pumpPin, int valvePin, int hold, float Kp, float Ki, float minPressure);
 
     void ctrl_INIT();
 
@@ -47,6 +48,8 @@ public:
 
     float ctrl_updateSum(float addedPressure, float goalPressure);
     void ctrl_plot();
+
+    float ctrl_update(float setpoint, bool gripDetected);
 };
 
 #endif
