@@ -11,14 +11,14 @@
 #define PRESURE_PIN  35
 #define joyX_PIN 34
 #include "pressureCtrl.h"
-#include "motorCTR.h"
+#include "GripCommunication.h"
 #include <array>
 
-float Kp = 5; 
+float Kp = 7; 
 float Ki = 1;
 float hold = 100;
 
-float baseSetPoint = 0.1;
+float baseSetPoint = 0.2;
 float setPoint = baseSetPoint;
 
 float speed;
@@ -56,20 +56,17 @@ float addSample(float x) {
 
 
 pressureCtrl controler1(PRESURE_PIN, PUMP_PIN, VALVE_PIN, hold, Kp, Ki, baseSetPoint);
-motorCTR motor;
+GripCommunication rightGrip;
 
 void setup() {
     Serial.begin(115200);
 
     delay(1000);
     Serial.println("Starting...");
-    motor.connect();
-    Serial.println("Connected");
-
     controler1.ctrl_INIT();
     pinMode(joyX_PIN, INPUT);
 
-    motor.position_INIT();
+    rightGrip.begin();
     delay(500);
 
 
@@ -85,14 +82,14 @@ void loop() {
 
   speed =  constrain(joyX, 0, 100);
 
-  inputPressure = controler1.ctrl_update(constrain(setPoint, baseSetPoint, 2), motor.gripDetected());
+  inputPressure = controler1.ctrl_update(constrain(setPoint, baseSetPoint, 2), rightGrip.gripDetect());
 
   if (speed < 10) speed = constrain(inputPressure * 150 - 10, 0, 100);
 
-  if ((inputPressure > 2*baseSetPoint) || (joyX > 30)) {
-    motor.closeGrip(speed);
+  if ((inputPressure > 1.5 *baseSetPoint) || (joyX > 30)) {
+    rightGrip.gripRight(1.0f - ((float)speed/100.0f));
   } else {
-    motor.openGrip(70);
+    rightGrip.gripRight(1);
   }
 
   setPoint = inputPressure;

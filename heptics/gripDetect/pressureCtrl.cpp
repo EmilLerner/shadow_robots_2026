@@ -148,6 +148,8 @@ float pressureCtrl::ctrl_update(float setpoint, bool gripDetected) {
     integral += error * 0.02; 
     integral = constrain(integral, -1, 1);
     output = Kp * error + Ki * integral;
+  } else {
+    output = 0;
   }
   
   motorSpeed = constrain(output * 1024, -255, 255);
@@ -164,6 +166,6 @@ float pressureCtrl::ctrl_update(float setpoint, bool gripDetected) {
     analogWrite(pumpPin, 0);
   }
 
-  return pressure - integral;
+  return pressure - fabs(integral);
 
 }

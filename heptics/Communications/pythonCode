@@ -1,0 +1,77 @@
+# sample code for python
+
+import serial
+import threading
+import time
+
+from RG6gripper import RG6gripper
+
+gripper = RG6gripper()
+
+# com used by esp1
+ser = serial.Serial("COM5", 115200, timeout=1)
+time.sleep(2)  
+
+
+
+
+def send_message(message: str):
+    ser.write((message + "\n").encode("utf-8"))
+    print(f"Sent: {message}")
+
+
+def receive():
+    while True:
+        try:
+            # recive teh vales 
+            line = ser.readline().decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+
+            # print(f"Received: {line}")
+            # splits the messege into header and parts
+
+            parts = line.split(",", 1)
+            header = parts[0]
+
+            # the header is GRIP and the lenght matches
+            if header == "GRIP" and len(parts) == 2:
+                try:
+                    value = float(parts[1])
+
+                    # Execute the grip action
+                    gripper.move_right(value, 1200)
+
+                    # Check the resulting grip state
+                    status = bool(gripper.gripDetectedRight())
+
+                    # Send Boolean result back through ESP1
+                    send_message(
+                        f"GRIPSTATUS,{int(status)}"
+                    )
+
+                except ValueError:
+                    print("Invalid GRIP float value")
+
+        except serial.SerialException as e:
+            print(f"Serial error: {e}")
+            break
+
+
+thread = threading.Thread(target=receive, daemon=True)
+thread.start()
+
+print("Listening for GRIP commands. Type quit to exit.")
+
+try:
+    while True:
+        msg = input("> ").strip()
+
+        if msg.lower() == "quit":
+            break
+
+        if msg:
+            send_message(msg)
+
+finally:
+    ser.close()
