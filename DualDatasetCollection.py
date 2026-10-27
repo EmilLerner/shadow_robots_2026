@@ -8,7 +8,7 @@ from mtwManipulator import MtwManipulator
 # setting
 update_rate = 80
 radio_channel = 19
-output_file = "dual_imu_dataset.csv"
+output_file = "dual_imu_dataset3.csv"
 
 # Allow up to half a nominal sample interval between sensor
 # packet-arrival timestamps when aligning six sensor streams.

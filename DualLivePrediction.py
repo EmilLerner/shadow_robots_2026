@@ -1,545 +1,284 @@
-from pathlib import Path
-from collections import deque
-import queue
+"""Live Xsens + RF + offline UR5 IK/FK evaluation. No CSV or robot connection.
 
-import joblib
+Requires the project's existing modules. Robot FK adapter assumes
+forward_kinematics(q, a, d, b, tp); adjust robot_tcp() if yours differs.
+"""
+from collections import deque
+import time
 import numpy as np
 import pandas as pd
-
-import DualVariableConfig
+import joblib
+import xsensdeviceapi as xda
+import DualVariableConfig as cfg
 from armMotionV2 import ArmMotion
-
-upper_arm_length = DualVariableConfig.UPPER_ARM_LENGTH
-forearm_length = DualVariableConfig.FOREARM_LENGTH
-hand_length = DualVariableConfig.HAND_LENGTH
-
-# Use the exact dimensions and orientation configuration from
-# your existing ArmMotion setup.
-arms_dim = [upper_arm_length, forearm_length, hand_length]
-
-orientation = DualVariableConfig.ORIENTATION  
-
-# Only one instance is needed because calculate_human_positions()
-# accepts the quaternion data for either arm.
-arm_motion = ArmMotion(
-    arms_dim,
-    orientation,
-    devices={}
-)
-
-# Model loading
-
-def load_model(model_filename):
-    """Load the trained 18-output Random Forest model."""
-
-    path = path(model_filename)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Could not find model: {path.resolve()}\n"
-            "Check MODEL_FILENAME in VariableConfig.py and ensure "
-            "the 18-output Cartesian position model has been trained."
-        )
-
-    model = joblib.load(path)
-
-    if not hasattr(model, "predict"):
-        raise TypeError("Loaded model does not provide predict().")
-
-    return model
-
-
-import queue
-
-# This queue must be shared with your Xsens acquisition code.
-sample_queue = queue.Queue(maxsize=400)
-
-
-def read_live_sample(timeout=2.0):
-    """
-    Return one complete sample from the Xsens acquisition loop.
-
-    The acquisition loop must place dictionaries containing
-    all six sensors' features and quaternions into sample_queue.
-    """
-
-    try:
-        sample = sample_queue.get(timeout=timeout)
-    except queue.Empty:
-        raise TimeoutError(
-            "No complete Xsens sample received within "
-            f"{timeout} seconds."
-        )
-
-    required_sensors = {
-        "S1": "R",
-        "S2": "R",
-        "S3": "R",
-        "S4": "L",
-        "S5": "L",
-        "S6": "L",
-    }
-
-    required_measurements = [
-        "ACC_X", "ACC_Y", "ACC_Z",
-        "GYRO_X", "GYRO_Y", "GYRO_Z",
-        "QUAT_W", "QUAT_X", "QUAT_Y", "QUAT_Z",
-    ]
-
-    required_keys = [
-        f"{sensor}_{measurement}_{side}"
-        for sensor, side in required_sensors.items()
-        for measurement in required_measurements
-    ]
-
-    missing = [key for key in required_keys if key not in sample]
-
-    if missing:
-        raise ValueError(
-            f"Incomplete Xsens sample. Missing keys: {missing}"
-        )
-
-    return sample
-
-# --------------------------- Actual Cartesian positions ---------------------------
-
-def calculate_actual_positions(sample):
-    """
-    Calculate the actual elbow, wrist, and hand positions for both arms.
-
-    Return either:
-      - a dictionary keyed by TARGET_FEATURES, or
-      - a NumPy array in exactly TARGET_FEATURES order.
-
-    The six points must produce 18 Cartesian coordinates:
-        Right: elbow, wrist, hand (x, y, z)
-        Left:  elbow, wrist, hand (x, y, z)
-    """
-
-    # Replace these references with your actual configuration.
-    upper_arm_length = DualVariableConfig.UPPER_ARM_LENGTH
-    forearm_length = DualVariableConfig.FOREARM_LENGTH
-    hand_length = DualVariableConfig.HAND_LENGTH
-
-    # Right arm: S1 shoulder, S2 forearm, S3 hand
-    right_quat_data = {
-        "SHOU": [
-            sample["S1_QUAT_W_R"],
-            sample["S1_QUAT_X_R"],
-            sample["S1_QUAT_Y_R"],
-            sample["S1_QUAT_Z_R"],
-        ],
-        "fARM": [
-            sample["S2_QUAT_W_R"],
-            sample["S2_QUAT_X_R"],
-            sample["S2_QUAT_Y_R"],
-            sample["S2_QUAT_Z_R"],
-        ],
-        "HAND": [
-            sample["S3_QUAT_W_R"],
-            sample["S3_QUAT_X_R"],
-            sample["S3_QUAT_Y_R"],
-            sample["S3_QUAT_Z_R"],
-        ],
-    }
-
-    # Left arm: S4 shoulder, S5 forearm, S6 hand
-    left_quat_data = {
-        "SHOU": [
-            sample["S4_QUAT_W_L"],
-            sample["S4_QUAT_X_L"],
-            sample["S4_QUAT_Y_L"],
-            sample["S4_QUAT_Z_L"],
-        ],
-        "fARM": [
-            sample["S5_QUAT_W_L"],
-            sample["S5_QUAT_X_L"],
-            sample["S5_QUAT_Y_L"],
-            sample["S5_QUAT_Z_L"],
-        ],
-        "HAND": [
-            sample["S6_QUAT_W_L"],
-            sample["S6_QUAT_X_L"],
-            sample["S6_QUAT_Y_L"],
-            sample["S6_QUAT_Z_L"],
-        ],
-    }
-
-    # Reuse your existing forward-kinematics implementation.
-    right_positions = arm_motion.calculate_human_positions(
-        right_quat_data
-    )
-
-    left_positions = arm_motion.calculate_human_positions(
-        left_quat_data
-    )
-
-    # 9 right-arm values + 9 left-arm values = 18 values.
-    actual_positions = np.concatenate([
-        right_positions,
-        left_positions,
-    ])
-
-    if actual_positions.shape != (18,):
-        raise ValueError(
-            f"Expected 18 actual position values, "
-            f"got {actual_positions.shape}"
-        )
-
-    if not np.all(np.isfinite(actual_positions)):
-        raise ValueError("Actual positions contain invalid values.")
-
-    return actual_positions
-
-
-# --------------------------- Prediction ---------------------------
-
-def predict_positions(
-    model,
-    imu_sample,
-    imu_features,
-    target_features,
-):
-    """
-    Predict future Cartesian positions from one live IMU sample.
-
-    Returns a 1D NumPy array in target_features order.
-    """
-
-    missing = [
-        name for name in imu_features
-        if name not in imu_sample
-    ]
-
-    if missing:
-        raise ValueError(f"Missing IMU features: {missing}")
-
-    X = pd.DataFrame(
-        [[imu_sample[name] for name in imu_features]],
-        columns=imu_features,
-    ).astype(float)
-
-    prediction = np.asarray(
-        model.predict(X),
-        dtype=float,
-    ).reshape(-1)
-
-    if len(prediction) != len(target_features):
-        raise ValueError(
-            f"Model returned {len(prediction)} outputs; "
-            f"expected {len(target_features)}. "
-            "Check that the loaded model was trained on all 18 "
-            "Cartesian position targets."
-        )
-
-    if not np.all(np.isfinite(prediction)):
-        raise ValueError(
-            "Prediction contains NaN or infinite values."
-        )
-
-    return prediction
-
-
-# --------------------------- Actual position conversion ---------------------------
-
-def actual_positions_to_array(actual_positions, target_features):
-    """
-    Convert actual positions to the target feature order.
-
-    Accepts a dictionary or an array.
-    """
-
-    if isinstance(actual_positions, dict):
-        missing = [
-            name for name in target_features
-            if name not in actual_positions
-        ]
-
-        if missing:
-            raise ValueError(
-                f"Missing actual position values: {missing}"
-            )
-
-        actual = np.asarray(
-            [actual_positions[name] for name in target_features],
-            dtype=float,
-        )
-
-    else:
-        actual = np.asarray(
-            actual_positions,
-            dtype=float,
-        ).reshape(-1)
-
-    if len(actual) != len(target_features):
-        raise ValueError(
-            f"Received {len(actual)} actual values; "
-            f"expected {len(target_features)}."
-        )
-
-    if not np.all(np.isfinite(actual)):
-        raise ValueError(
-            "Actual positions contain NaN or infinite values."
-        )
-
-    return actual
-
-
-# --------------------------- Error calculation ---------------------------
-
-def calculate_position_errors(
-    predicted,
-    actual,
-    target_features,
-):
-    """
-    Calculate signed coordinate errors and Euclidean point errors.
-
-    Coordinate error:
-        predicted coordinate - actual coordinate
-
-    Point error:
-        Euclidean distance between predicted and actual point positions.
-
-    Returns:
-        coordinate_errors: 18 signed coordinate errors
-        point_errors: errors for six points, in metres
-    """
-
-    predicted = np.asarray(
-        predicted,
-        dtype=float,
-    ).reshape(-1)
-
-    actual = np.asarray(
-        actual,
-        dtype=float,
-    ).reshape(-1)
-
-    if len(predicted) != len(target_features):
-        raise ValueError(
-            "Predicted vector length does not match targets."
-        )
-
-    if len(actual) != len(target_features):
-        raise ValueError(
-            "Actual vector length does not match targets."
-        )
-
-    if not np.all(np.isfinite(predicted)):
-        raise ValueError("Predicted values contain invalid numbers.")
-
-    if not np.all(np.isfinite(actual)):
-        raise ValueError("Actual values contain invalid numbers.")
-
-    coordinate_errors = predicted - actual
-    point_errors = {}
-
-    for arm in ("r", "l"):
-        for point in ("elbow", "wrist", "hand"):
-
-            names = [
-                f"{point}_x_{arm}",
-                f"{point}_y_{arm}",
-                f"{point}_z_{arm}",
-            ]
-
-            missing = [
-                name for name in names
-                if name not in target_features
-            ]
-
-            if missing:
-                raise ValueError(
-                    f"Missing target coordinates for "
-                    f"{point}_{arm}: {missing}"
-                )
-
-            indices = [
-                target_features.index(name)
-                for name in names
-            ]
-
-            point_errors[f"{point}_{arm}"] = float(
-                np.linalg.norm(coordinate_errors[indices])
-            )
-
-    return coordinate_errors, point_errors
-
-
-# --------------------------- Delayed prediction evaluator ---------------------------
-
-class DelayedPredictionEvaluator:
-    """
-    Match future predictions to actual positions by sample number.
-
-    Example:
-        A prediction made at sample 100 with SAMPLE_SHIFT=5
-        is compared with actual positions at sample 105.
-    """
-
-    def __init__(self, sample_shift, target_features):
-
-        if sample_shift < 1:
-            raise ValueError(
-                "sample_shift must be at least 1."
-            )
-
-        self.sample_shift = int(sample_shift)
-        self.target_features = list(target_features)
-
-        self.queue = deque()
-
-        self.coordinate_errors = {
-            name: []
-            for name in self.target_features
-        }
-
-        self.point_errors = {
-            f"{point}_{arm}": []
-            for arm in ("r", "l")
-            for point in ("elbow", "wrist", "hand")
-        }
-
+from mtwManipulator import MtwManipulator
+from wirelessMasterCallback import WirelessMasterCallback
+from inverse_kinematics_solver5 import choose_best_ik, forward_kinematics
+
+SENSOR_IDS = {
+    '00B4F1B1': 'S1', '00B4F1AE': 'S2', '00B4F12E': 'S3',
+    '00B4F12F': 'S4', '00B4F1B3': 'S5', '00B4F130': 'S6'
+}
+SENSORS = tuple(f'S{i}' for i in range(1, 7))
+PARTS = ('Right elbow', 'Right wrist', 'Right hand',
+         'Left elbow', 'Left wrist', 'Left hand')
+
+
+def column_map():
+    result = {}
+    for i, sensor in enumerate(SENSORS):
+        side = 'R' if i < 3 else 'L'
+        result[sensor] = ([f'{sensor}_ACC_{axis}_{side}' for axis in 'XYZ']
+                          + [f'{sensor}_GYRO_{axis}_{side}' for axis in 'XYZ']
+                          + [f'{sensor}_QUAT_{axis}_{side}' for axis in 'WXYZ'])
+    return result
+
+
+COLUMNS = column_map()
+
+
+class XsensCollector:
+    """Produce latest complete six-sensor rows using the existing MTW classes."""
+    def __init__(self, update_rate=80, radio_channel=19):
+        self.update_rate = update_rate
+        self.radio_channel = radio_channel
+        self.control = None
+        self.manipulator = None
+        self.data = {s: None for s in SENSORS}
+        self.updated = {s: False for s in SENSORS}
+        self.packet_counts = {s: 0 for s in SENSORS}
         self.sample_count = 0
-        self.matched_count = 0
+        self.start_time = None
 
-    def add_prediction(self, prediction):
-        """Queue a prediction generated from the current sample."""
-
-        prediction = np.asarray(
-            prediction,
-            dtype=float,
-        ).reshape(-1)
-
-        if len(prediction) != len(self.target_features):
-            raise ValueError(
-                "Prediction length does not match targets."
-            )
-
-        if not np.all(np.isfinite(prediction)):
-            raise ValueError(
-                "Prediction contains NaN or infinite values."
-            )
-
-        self.queue.append({
-            "source_sample": self.sample_count,
-            "target_sample": self.sample_count + self.sample_shift,
-            "prediction": prediction.copy(),
-        })
-
-    def compare_if_due(self, actual_positions):
-        """
-        Compare a due prediction with the current actual positions.
-
-        Call once per live sample, before add_prediction() and
-        increment_sample().
-
-        Returns a result dictionary when a prediction is due,
-        or None when no prediction is due.
-        """
-
-        actual = actual_positions_to_array(
-            actual_positions,
-            self.target_features,
+    def start(self):
+        self.control = xda.XsControl.construct()
+        callback = WirelessMasterCallback()
+        self.manipulator = MtwManipulator(
+            self.control, callback, self.update_rate,
+            self.radio_channel, SENSOR_IDS
         )
+        print('Scanning for Xsens devices...')
+        self.manipulator.scanXsDevices()
+        self.manipulator.startConfigMode()
+        print('Waiting for MTW connections...')
+        self.manipulator.waitForConnections()
+        self.manipulator.startMeasurement()
+        self.manipulator.resetOrientationData()
+        self.manipulator.startRecording()
+        self.start_time = time.perf_counter()
 
-        if not self.queue:
+    def poll(self):
+        if self.manipulator is None:
+            raise RuntimeError('Xsens collector not started')
+        for callback in self.manipulator.getMtwCallbacks():
+            sensor_id = str(callback.device().deviceId())
+            sensor = SENSOR_IDS.get(sensor_id)
+            while callback.dataAvailable():
+                packet = callback.getOldestPacket()
+                try:
+                    if sensor is None:
+                        continue
+                    acc = packet.calibratedAcceleration()
+                    gyro = packet.calibratedGyroscopeData()
+                    quat = packet.orientationQuaternion()
+                    self.data[sensor] = ([float(acc[i]) for i in range(3)]
+                                         + [float(gyro[i]) for i in range(3)]
+                                         + [float(quat[i]) for i in range(4)])
+                    self.updated[sensor] = True
+                    self.packet_counts[sensor] += 1
+                finally:
+                    callback.deleteOldestPacket()
+        if not all(self.updated.values()):
             return None
-
-        item = self.queue[0]
-
-        if item["target_sample"] > self.sample_count:
-            return None
-
-        self.queue.popleft()
-
-        if item["target_sample"] != self.sample_count:
-            return {
-                "matched": False,
-                "source_sample": item["source_sample"],
-                "target_sample": item["target_sample"],
-            }
-
-        coordinate_errors, point_errors = calculate_position_errors(
-            item["prediction"],
-            actual,
-            self.target_features,
-        )
-
-        for i, name in enumerate(self.target_features):
-            self.coordinate_errors[name].append(
-                float(coordinate_errors[i])
-            )
-
-        for name, error in point_errors.items():
-            self.point_errors[name].append(error)
-
-        self.matched_count += 1
-
-        return {
-            "matched": True,
-            "source_sample": item["source_sample"],
-            "target_sample": item["target_sample"],
-            "predicted": item["prediction"].copy(),
-            "actual": actual.copy(),
-            "coordinate_errors": coordinate_errors.copy(),
-            "point_errors": point_errors.copy(),
-            "mean_point_error": float(
-                np.mean(list(point_errors.values()))
-            ),
-        }
-
-    def increment_sample(self):
-        """Advance the sample counter once per live sample."""
-
+        row = {'timestamp': time.perf_counter() - self.start_time}
+        for sensor in SENSORS:
+            row.update(zip(COLUMNS[sensor], self.data[sensor]))
+        self.updated = {s: False for s in SENSORS}
         self.sample_count += 1
+        return row
 
-    def get_rmse(self):
-        """
-        Return coordinate RMSE and point-distance RMSE.
+    def stop(self):
+        if self.manipulator is not None:
+            try:
+                self.manipulator.stopRecording()
+            except Exception as exc:
+                print(f'Warning stopping recording: {exc}')
+            # The project MtwManipulator does not implement stopMeasurement().
+            self.manipulator = None
 
-        Both are calculated over all successfully matched predictions.
-        """
 
-        coordinate_rmse = {
-            name: float(
-                np.sqrt(np.mean(np.square(errors)))
-            )
-            for name, errors in self.coordinate_errors.items()
-            if errors
+def robot_tcp(q, a, d, b, tp):
+    """Call EXISTING FK; accept XYZ, 4x4 transform, or (position, rotation).
+
+    If your forward_kinematics signature differs, modify this adapter only.
+    """
+    result = forward_kinematics(q, a, d, b, tp)
+    if isinstance(result, (tuple, list)) and len(result) == 2:
+        result = result[0]
+    result = np.asarray(result, dtype=float)
+    if result.shape == (4, 4):
+        return result[:3, 3].copy()
+    if result.shape == (3,):
+        return result.copy()
+    raise ValueError(f'Unexpected forward_kinematics output shape: {result.shape}')
+
+
+class LivePrediction:
+    """Keep only pending predictions; aggregate errors without saving samples."""
+    def __init__(self, buffer_limit=32):
+        self.features = list(cfg.IMU_FEATURES)
+        self.targets = list(cfg.TARGET_FEATURES)
+        if len(self.targets) != 18:
+            raise ValueError('TARGET_FEATURES must have 18 values (6 XYZ positions)')
+        self.model = joblib.load(cfg.COMBINED_MODEL)
+        dims = [cfg.UPPER_ARM_LENGTH, cfg.FOREARM_LENGTH, cfg.HAND_LENGTH]
+        self.right_arm = ArmMotion(dims, 'NONE', devices={})
+        self.left_arm = ArmMotion(dims, 'INV', devices={})
+        self.horizon = float(cfg.SAMPLE_SHIFT) * float(cfg.SAMPLE_TIME)
+        if self.horizon <= 0:
+            raise ValueError('Prediction horizon must be positive')
+        self.human_pending = deque()
+        self.robot_pending = deque()
+        self.buffer_limit = int(buffer_limit)
+        self.previous_actual = None
+        self.count_human = 0
+        self.human_sum = np.zeros(6)
+        self.human_sq = np.zeros(6)
+        self.count_robot = np.zeros(2, dtype=int)
+        self.robot_xyz_sum = np.zeros(2)
+        self.robot_xyz_sq = np.zeros(2)
+        self.robot_joint_sum = np.zeros(2)
+        self.robot_joint_sq = np.zeros(2)
+        self.failed_ik = 0
+        self.dropped = 0
+        self.a = cfg.ROBOT_A
+        self.d = cfg.ROBOT_D
+        self.b = cfg.ROBOT_B
+        self.tp = cfg.ROBOT_TP
+        # Reference angles select an IK branch, not measured robot angles.
+        self.q_reference = [np.zeros(6), np.zeros(6)]
+        self.rotations = [self._fixed_rotation(self.right_arm),
+                          self._fixed_rotation(self.left_arm)]
+
+    @staticmethod
+    def _fixed_rotation(arm):
+        # Use the orientation convention in the existing ArmMotion module.
+        rotation = np.asarray(
+            arm.gen_rot_mat([0, 0, 0, 1], arm.alpha, arm.beta, arm.gamma),
+            dtype=float
+        )
+        if arm.orientation == 'INV':
+            rotation = np.diag([-1.0, -1.0, 1.0]) @ rotation
+        return rotation
+
+    def human_xyz(self, row):
+        quats = {
+            name: tuple(float(row[col]) for col in columns)
+            for name, columns in cfg.QUAT_COLUMNS.items()
         }
+        right = {'SHOU': quats['RSHOU'], 'fARM': quats['RfARM'],
+                 'HAND': quats['RHAND']}
+        left = {'SHOU': quats['LSHOU'], 'fARM': quats['LfARM'],
+                'HAND': quats['LHAND']}
+        return np.concatenate((
+            self.right_arm.calculate_human_positions(right),
+            self.left_arm.calculate_human_positions(left)
+        )).astype(float)
 
-        point_rmse = {
-            name: float(
-                np.sqrt(np.mean(np.square(errors)))
-            )
-            for name, errors in self.point_errors.items()
-            if errors
-        }
+    def robot_from_human(self, human_xyz):
+        """Return (2,6) IK joint angles and (2,3) FK TCP positions.
 
-        return coordinate_rmse, point_rmse
+        Only the hand XYZ (indices 6:9 and 15:18) defines the IK target.
+        The elbow/wrist XYZ are evaluated separately as human predictions.
+        """
+        q_all, tcp_all = [], []
+        for arm_index, hand in enumerate((human_xyz[6:9], human_xyz[15:18])):
+            q = choose_best_ik(self.q_reference[arm_index], hand,
+                               self.rotations[arm_index],
+                               self.a, self.d, self.b, self.tp)
+            if q is None:
+                raise ValueError('IK returned no solution')
+            q = np.asarray(q, dtype=float).reshape(6)
+            if not np.all(np.isfinite(q)):
+                raise ValueError('IK returned nonfinite angles')
+            tcp = robot_tcp(q, self.a, self.d, self.b, self.tp)
+            q_all.append(q)
+            tcp_all.append(tcp)
+        return np.stack(q_all), np.stack(tcp_all)
 
-    def print_rmse(self):
+    def process(self, row):
+        """Predict now, compare earlier predictions when target time passes.
 
-        coordinate_rmse, point_rmse = self.get_rmse()
+        Comparisons use the first complete sample at/after target time.
+        Host timestamps approximate aligned packet time; not device time.
+        """
+        t = float(row['timestamp'])
+        actual = self.human_xyz(row)
+        events = []
+        while self.human_pending and self.human_pending[0][0] <= t:
+            target, predicted = self.human_pending.popleft()
+            error_cm = np.linalg.norm((predicted - actual).reshape(6, 3), axis=1) * 100
+            self.human_sum += error_cm
+            self.human_sq += error_cm ** 2
+            self.count_human += 1
+            events.append(('human', t - target, error_cm))
 
-        print("\n========== RUNNING RMSE ==========")
+        while self.robot_pending and self.robot_pending[0][0] <= t:
+            target, q_pred, tcp_pred = self.robot_pending.popleft()
+            try:
+                q_actual, tcp_actual = self.robot_from_human(actual)
+            except (ValueError, TypeError, ArithmeticError) as exc:
+                self.failed_ik += 1
+                events.append(('ik_failed', str(exc)))
+                continue
+            tcp_err = np.linalg.norm(tcp_pred - tcp_actual, axis=1) * 100
+            # Shortest signed angular difference, in degrees.
+            delta = np.arctan2(np.sin(q_pred - q_actual),
+                               np.cos(q_pred - q_actual))
+            joint_err = np.sqrt(np.mean(np.rad2deg(delta) ** 2, axis=1))
+            self.count_robot += 1
+            self.robot_xyz_sum += tcp_err
+            self.robot_xyz_sq += tcp_err ** 2
+            self.robot_joint_sum += joint_err
+            self.robot_joint_sq += joint_err ** 2
+            events.append(('robot', t - target, tcp_err, joint_err))
 
-        if not coordinate_rmse and not point_rmse:
-            print("No matched predictions available yet.")
+        x = pd.DataFrame([[float(row[name]) for name in self.features]],
+                         columns=self.features)
+        predicted = np.asarray(self.model.predict(x)[0], dtype=float)
+        if predicted.shape != (18,):
+            raise ValueError(f'Expected 18 RF outputs, got {predicted.shape}')
+        target = t + self.horizon
+        self.human_pending.append((target, predicted.copy()))
+        try:
+            q_pred, tcp_pred = self.robot_from_human(predicted)
+            self.robot_pending.append((target, q_pred.copy(), tcp_pred.copy()))
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            self.failed_ik += 1
+            events.append(('ik_failed', str(exc)))
+        # Bound both buffers; overflow is counted, not silently ignored.
+        for queue in (self.human_pending, self.robot_pending):
+            while len(queue) > self.buffer_limit:
+                queue.popleft()
+                self.dropped += 1
+        return events
 
-        for name, value in coordinate_rmse.items():
-            print(
-                f"{name}: {value:.5f} m "
-                "(coordinate RMSE)"
-            )
-
-        for name, value in point_rmse.items():
-            print(
-                f"{name}: {value:.5f} m "
-                "(point-distance RMSE)"
-            )
-
-        print(f"Matched predictions: {self.matched_count}")
-        print("==================================\n")
+    def summary(self):
+        lines = [f'Human comparisons: {self.count_human}',
+                 f'Robot comparisons (right/left): {self.count_robot.tolist()}',
+                 f'IK failures: {self.failed_ik} | Buffer drops: {self.dropped}']
+        if self.count_human:
+            lines.append('Human 3D mean error / RMSE (cm):')
+            for name, mean, sq in zip(PARTS, self.human_sum / self.count_human,
+                                      np.sqrt(self.human_sq / self.count_human)):
+                lines.append(f'  {name:13s}: {mean:7.2f} / {sq:7.2f}')
+        for i, side in enumerate(('Right', 'Left')):
+            if self.count_robot[i]:
+                n = self.count_robot[i]
+                lines.append(
+                    f'{side} robot FK TCP mean/RMSE: '
+                    f'{self.robot_xyz_sum[i]/n:.2f}/{np.sqrt(self.robot_xyz_sq[i]/n):.2f} cm; '
+                    f'joint RMS difference mean/RMSE: '
+                    f'{self.robot_joint_sum[i]/n:.2f}/{np.sqrt(self.robot_joint_sq[i]/n):.2f} deg'
+                )
+        return '\n'.join(lines)

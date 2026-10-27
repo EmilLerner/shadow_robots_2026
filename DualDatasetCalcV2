@@ -16,13 +16,14 @@ sample_time = DualVariableConfig.SAMPLE_TIME  # 0.0125 seconds
 target_features = DualVariableConfig.TARGET_FEATURES
 quat_cols = DualVariableConfig.QUAT_COLUMNS
 
-L_upper = DualVariableConfig.UPPER_ARM_LENGTH
-L_forearm = DualVariableConfig.FOREARM_LENGTH
-L_hand = DualVariableConfig.HAND_LENGTH
+Len_upper = DualVariableConfig.UPPER_ARM_LENGTH
+Len_forearm = DualVariableConfig.FOREARM_LENGTH
+Len_hand = DualVariableConfig.HAND_LENGTH
 
 # Must match ArmMotion orientation setting
-orientation = "INV"
-arms_dim = [L_upper, L_forearm, L_hand]
+orientation_L = "INV"
+orientation_R = "NONE"
+arms_dim = [Len_upper, Len_forearm, Len_hand]
 
 # --------------------------------------------------
 # Load and validate original dataset
@@ -161,7 +162,8 @@ for sensor, columns in quat_cols.items():
 # --------------------------------------------------
 # Calculate elbow, wrist and hand positions
 # --------------------------------------------------
-arm = ArmMotion(arms_dim, orientation, devices={})
+right_arm = ArmMotion(arms_dim, orientation_R, devices={})
+left_arm = ArmMotion(arms_dim, orientation_L, devices={})
 
 positions = []
 
@@ -186,11 +188,11 @@ for _, row in resampled.iterrows():
         "HAND": quat_data["LHAND"]
     }
 
-    right_positions = arm.calculate_human_positions(
+    right_positions = right_arm.calculate_human_positions(
         right_quat_data
     )
 
-    left_positions = arm.calculate_human_positions(
+    left_positions = left_arm.calculate_human_positions(
         left_quat_data
     )
 

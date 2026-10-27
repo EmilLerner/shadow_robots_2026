@@ -1,11 +1,12 @@
 import numpy as np
 
 # Settings
-RAW_FILENAME = "dual_imu_dataset.csv"
-RESAMPLED_FILENAME = "dual_imu_dataset80Hz.csv"
-PROCESSED_FILENAME = "dual_xsens_dataset_with_positions.csv"
-MODEL_FILENAME = "dual_human_joint_coordinates_predictor_3d.pkl"
-MODEL_INFO_FILENAME = "dual_human_joint_coordinates_predictor_info_3d.pkl"
+RAW_FILENAME = "dual_imu_dataset1.csv"
+PROCESSED_FILENAME = "dual_xsens_dataset_with_positions5.csv"
+TEST_FILENAME = "dual_xsens_dataset_with_positions_test.csv"
+MODEL_FILENAME = "dual_human_joint_coordinates_predictor_3d1.pkl"
+COMBINED_MODEL = "combined_RF_model.pkl"
+MODEL_INFO_FILENAME = "dual_human_joint_coordinates_predictor_info_3d1.pkl"
 DATASET_PATH = "subject_1/AS/F"
 SAMPLE_RATE = 80 # Hz
 RADIO_CHANNEL = 19

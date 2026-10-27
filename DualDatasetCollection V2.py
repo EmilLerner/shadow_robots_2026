@@ -341,7 +341,7 @@ try:
         writer.writerow(dataset_cols)
         writer.writerows(recorded_data)
 
-    print("CSV saved successfully to 'dual_imu_dataset.csv'")
+    print(f"CSV saved successfully to: {raw_filename}")
 
     # Clear the array after a successful save.
     recorded_data.clear()

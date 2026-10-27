@@ -67,8 +67,8 @@ print(len(X_test))
 print("\nCreating Random Forest...")
 
 model = RandomForestRegressor(
-    n_estimators=1000,
-    max_depth=70,
+    n_estimators=500,
+    max_depth=50,
     min_samples_leaf=2,
     random_state=42,
     n_jobs=-1
