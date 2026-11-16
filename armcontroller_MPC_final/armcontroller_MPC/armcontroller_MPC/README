@@ -1,0 +1,104 @@
+ENVIRONMENT SETUP
+Ubuntu 20.04 LTS
+Python 3.8.10
+JDK 1.8
+
+LIBRARIES INSTALLATION
+On linux, sudo is essential during library installation for python or running scripts, otherwise motion sensors will not initiate.
+
+Required set of libraries, use sudo pip install to install them:
+
+keyboard
+numpy
+scipy
+ur_rtde
+
+MTW SDK INSTALLATION
+To install MTw SDK for python, go to Xsens software download page:
+
+https://www.movella.com/support/software-documentation
+
+Locate the “MTw Awinda” section, then click “Download MT Software Suite for Linux” to download a Linux package. A sidebar will appear, select Linux x64 (or x86, depending on your Linux version). Once the package is downloaded, unzip it. In the unzipped folder, locate a shell script “mtsdk_linux-x64_2022.2.sh”, make it executable in the terminal:
+
+chmod +x mtsdk_linux-x64_2022.2.sh
+
+Then run it:
+
+./mtsdk_linux-x64_2022.2.sh
+
+MTw SDK should be downloaded to /usr/local by default. To install required library for python run:
+
+sudo pip install /usr/local/xsens64/python/xsensdeviceapi-2022.2.0-cp38-none-linux_x86_64.whl
+
+URSIM INSTALLATION
+To install URSim, go to Universal Robot download page:
+
+https://www.universal-robots.com/download/software-e-series/simulator-linux/offline-simulator-e-series-ur-sim-for-linux-5126-lts/
+
+Download and unzip:
+
+URSim_Linux-5.12.6.1102099.tar.gz
+
+Once unzipped, go to the unzipped folder:
+cd ursim-5.X.X.XXXXX
+
+Then run installation shell script:
+
+./install.sh
+
+(ATTENTION: It is possible that installation script would not run properly on Ubuntu 20.04, to resolve that, open installation script with nano or text editor, and change libcurl3 in commonDependencies in line 71 to libcurl4)
+
+After installation is complete, you can launch URSim locally with:
+
+ursim-5.X.X.XXXXX/start-ursim.sh
+
+It will run an offline version of URSim, which is similar to the one used in the physical robotic arm. This simulator allows to accurately test and debug robotic arm functionality in a controlled environment, before launching it to physical hardware.
+
+FILE STRUCTURE
+main_DualArm.py - main function for dual robotic arm functionality
+main_RightArm.py - main function for right robotic arm only
+armMotion.py - Motion controller for the robotic arm movement
+pidController.py - PID controller code for robotic arms
+inverse_kinematics_solver4.py - inverse kinematics solver for 4 possible solutions
+mtwManipulator.py - Functionality to initialise antenna instance
+mtwCallback.py - Functionality to read packets and states from motion sensors
+wirelessMasterCallback.py - MTw event handler
+
+CONFIGURABLE FIELDS
+main:
+You are able to configure specific parameters in both main files (main_DualArm.py and main_RightArm.py) provided. You can select appropriate IP address of robot (127.0.0.1 for URSim) or configure MTw IDs for arm limbs in mtws variable:
+
+mtws = {
+    	"ID1": "SHOU R",
+    	"ID2": "fARM R",
+    	"ID3": "HAND R",
+    	"ID4": "SHOU L",
+    	"ID5": "fARM L",
+    	"ID6": "HAND L",
+	}
+
+Make sure you only edit IDs (ID1, ID2, etc) and do not edit limb names, as they are an important part of code execution. There are also arm dimensions parameters for editing shoulder, forearm and hand dimensions (same order in arm_dims variable), arm dimensions scaling factor (arm_factor) and sensor update rate (desired_update_rate), if you need to edit them. Another parameter to edit is robotic arm orientation:
+
+right_arm = ArmMotion(arm_dims, "NONE", mtws)
+
+As shown in the example, the initial orientation is set to “NONE”, but if the physical base of the robotic arm is inverted, then you have to write the “INV” option, which will rotate it by 180 degrees.
+
+inverse kinematics:
+For the inverse kinematics (inverse_kinematics_solver4.py), you can select 4 possible solutions, which can be configured in combs1 and combs2 variables in choose_best_ik() function.
+
+arm motion:
+In the arm motion controller (armMotion.py), you can edit robot arm settings or human arm settings if needed.
+
+SENSOR PLACEMENT
+Wrap armbands around the upper arm, forearm and hand, then attach its respective sensors in a way, so you can see the USB-C port facing towards you (example is shown in SensorDir.png).
+
+CODE EXECUTION
+Once everything has been setup and installed, you can power on MTw sensors and launch URSim (if needed for offline testing), then launch dual arm control:
+
+sudo python3 main_DualArm.py
+
+Or launch right arm control only:
+
+sudo python3 main_RightArm.py
+
+When the code is running, sensors should start to connect one by one, which should be visible in the terminal. Once required sensors have been connected, press ‘Y’, and immediately stretch your arms in front of you (like in SensorDir.png) to enter the calibration state. Wait until sensors reset their orientation, and then you will be able to control robot arms.
